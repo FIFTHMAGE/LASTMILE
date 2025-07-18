@@ -115,13 +115,17 @@
 
 
 
+
   - Implement NotificationService class with multi-channel support
   - Add notification templates for different event types
   - Write unit tests for notification service methods
   - _Requirements: 8.4, 8.5_
 
+
 - [ ] 6. Add Payment System Foundation
-- [ ] 6.1 Create Payment model and basic payment processing
+- [x] 6.1 Create Payment model and basic payment processing
+
+
   - Implement Payment schema with transaction tracking
   - Create basic payment processing endpoints
   - Add unit tests for payment model validation
