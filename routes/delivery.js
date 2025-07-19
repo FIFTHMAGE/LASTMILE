@@ -1,750 +1,1210 @@
 const express = require('express');
 const router = express.Router();
+const { check, validationResult } = require('express-validator');
 const DeliveryTracking = require('../models/DeliveryTracking');
 const Offer = require('../models/Offer');
-const NotificationService = require('../services/NotificationService');
-const auth = require('../middleware/auth');
-
-// Initialize notification service
-const notificationService = new NotificationService();
+const LocationTracking = require('../models/LocationTracking');
+const { auth, requireRole } = require('../middleware/auth');
 
 /**
- * @route POST /api/delivery/tracking
- * @desc Create delivery tracking for an accepted offer
- * @access Private (Rider only)
+ * @route    POST /api/delivery/start/:offerId
+ * @desc     Start delivery tracking for an accepted offer
+ * @access   Private (Rider only)
  */
-router.post('/tracking', auth, async (req, res) => {
+router.post('/start/:offerId', auth, requireRole('rider'), async (req, res) => {
   try {
-    // Verify user is rider
-    if (req.user.role !== 'rider') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only riders can create delivery tracking'
-      });
-    }
-
-    const { offerId, initialLocation, metadata = {} } = req.body;
-
-    // Validate required fields
-    if (!offerId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Offer ID is required'
-      });
-    }
-
-    // Verify offer exists and is accepted by this rider
-    const offer = await Offer.findById(offerId);
+    const offer = await Offer.findById(req.params.offerId);
+    
     if (!offer) {
       return res.status(404).json({
         success: false,
         message: 'Offer not found'
       });
     }
-
+    
     if (offer.acceptedBy.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'You can only create tracking for your own accepted offers'
+        message: 'You are not assigned to this offer'
       });
     }
-
+    
     if (offer.status !== 'accepted') {
       return res.status(400).json({
         success: false,
-        message: 'Can only create tracking for accepted offers'
+        message: 'Offer must be in accepted status to start tracking'
       });
     }
-
-    // Check if tracking already exists
-    const existingTracking = await DeliveryTracking.findOne({ offer: offerId });
-    if (existingTracking) {
-      return res.status(409).json({
-        success: false,
-        message: 'Delivery tracking already exists for this offer'
-      });
-    }
-
-    // Create delivery tracking
-    const tracking = await DeliveryTracking.createForOffer(
-      offerId,
-      req.user.id,
-      offer.business,
-      { initialLocation, metadata }
-    );
-
-    res.status(201).json({
+    
+    const tracking = await DeliveryTracking.createForOffer(offer);
+    
+    res.json({
       success: true,
-      message: 'Delivery tracking created successfully',
-      data: {
-        tracking: tracking.getSummary()
-      }
+      message: 'Delivery tracking started',
+      tracking: tracking.getTrackingData()
     });
   } catch (error) {
-    console.error('Create delivery tracking error:', error);
+    console.error('Error starting delivery tracking:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create delivery tracking',
+      message: 'Server error starting delivery tracking',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route PUT /api/delivery/:trackingId/status
- * @desc Update delivery status
- * @access Private (Rider only)
+ * @route    GET /api/delivery/track/:offerId
+ * @desc     Get delivery tracking information
+ * @access   Private (Business owner or assigned rider)
  */
-router.put('/:trackingId/status', auth, async (req, res) => {
+router.get('/track/:offerId', auth, async (req, res) => {
   try {
-    // Verify user is rider
-    if (req.user.role !== 'rider') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only riders can update delivery status'
-      });
-    }
-
-    const { trackingId } = req.params;
-    const { status, location, description, metadata = {} } = req.body;
-
-    // Validate required fields
-    if (!status) {
-      return res.status(400).json({
-        success: false,
-        message: 'Status is required'
-      });
-    }
-
-    // Find delivery tracking
-    const tracking = await DeliveryTracking.findById(trackingId);
+    const tracking = await DeliveryTracking.getByOfferId(req.params.offerId);
+    
     if (!tracking) {
       return res.status(404).json({
         success: false,
         message: 'Delivery tracking not found'
       });
     }
+    
+    // Check if user has permission to view this tracking
+    const isBusinessOwner = tracking.business.toString() === req.user.id;
+    const isAssignedRider = tracking.rider.toString() === req.user.id;
+    
+    if (!isBusinessOwner && !isAssignedRider) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+    
+    // Get recent location data if available
+    const recentLocation = await LocationTracking.findOne({
+      rider: tracking.rider,
+      offer: tracking.offer,
+      isActive: true
+    }).sort({ timestamp: -1 });
+    
+    const trackingData = tracking.getTrackingData();
+    if (recentLocation) {
+      trackingData.currentLocation = {
+        coordinates: recentLocation.currentLocation.coordinates,
+        timestamp: recentLocation.timestamp,
+        accuracy: recentLocation.accuracy,
+        heading: recentLocation.heading,
+        speed: recentLocation.speed
+      };
+    }
+    
+    res.json({
+      success: true,
+      tracking: trackingData
+    });
+  } catch (error) {
+    console.error('Error fetching delivery tracking:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching delivery tracking',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
 
-    // Verify rider owns this delivery
+/**
+ * @route    POST /api/delivery/:offerId/event
+ * @desc     Add delivery event
+ * @access   Private (Assigned rider only)
+ */
+router.post('/:offerId/event', [
+  auth,
+  requireRole('rider'),
+  check('eventType', 'Event type is required').notEmpty(),
+  check('eventType', 'Invalid event type').isIn([
+    'heading_to_pickup',
+    'arrived_at_pickup',
+    'pickup_attempted',
+    'package_picked_up',
+    'departure_from_pickup',
+    'in_transit',
+    'arrived_at_delivery',
+    'delivery_attempted',
+    'package_delivered',
+    'delivery_completed',
+    'delivery_cancelled',
+    'issue_reported',
+    'customer_contacted',
+    'route_deviated',
+    'delay_reported'
+  ])
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+  
+  try {
+    const { eventType, notes, location, metadata } = req.body;
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId });
+    
+    if (!tracking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery tracking not found'
+      });
+    }
+    
     if (tracking.rider.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'You can only update your own deliveries'
+        message: 'You are not assigned to this delivery'
       });
     }
-
-    // Update status
-    await tracking.updateStatus(status, {
+    
+    if (!tracking.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery tracking is not active'
+      });
+    }
+    
+    await tracking.addEvent(eventType, {
       location,
-      description,
-      reportedBy: req.user.id,
-      metadata
+      notes,
+      metadata,
+      reportedBy: req.user.id
     });
-
-    // Update offer status if needed
-    const offer = await Offer.findById(tracking.offer);
-    if (offer && offer.status !== status) {
-      offer.status = status;
+    
+    // Update the related offer status if needed
+    const offer = await Offer.findById(req.params.offerId);
+    if (offer && eventType === 'package_delivered') {
+      offer.status = 'delivered';
+      offer.deliveredAt = new Date();
+      await offer.save();
+    } else if (offer && eventType === 'delivery_completed') {
+      offer.status = 'completed';
+      offer.completedAt = new Date();
       await offer.save();
     }
-
-    // Send notifications
-    if (notificationService) {
-      try {
-        await notificationService.sendOfferNotification(
-          tracking.offer,
-          `offer_${status}`,
-          { 
-            data: { 
-              trackingId: tracking._id,
-              location,
-              timestamp: new Date()
-            }
-          }
-        );
-      } catch (notificationError) {
-        console.error('Failed to send status update notification:', notificationError);
-        // Don't fail the request if notification fails
-      }
-    }
-
+    
     res.json({
       success: true,
-      message: `Delivery status updated to ${status}`,
-      data: {
-        tracking: tracking.getSummary()
-      }
+      message: 'Event added successfully',
+      tracking: tracking.getTrackingData()
     });
   } catch (error) {
-    console.error('Update delivery status error:', error);
-    
-    if (error.message.includes('Invalid status transition')) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-    
+    console.error('Error adding delivery event:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update delivery status',
+      message: 'Server error adding delivery event',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route PUT /api/delivery/:trackingId/location
- * @desc Update current location
- * @access Private (Rider only)
+ * @route    POST /api/delivery/:offerId/pickup-attempt
+ * @desc     Record pickup attempt
+ * @access   Private (Assigned rider only)
  */
-router.put('/:trackingId/location', auth, async (req, res) => {
+router.post('/:offerId/pickup-attempt', [
+  auth,
+  requireRole('rider'),
+  check('successful', 'Successful status is required').isBoolean(),
+  check('notes', 'Notes are required').notEmpty()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+  
   try {
-    // Verify user is rider
-    if (req.user.role !== 'rider') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only riders can update delivery location'
-      });
-    }
-
-    const { trackingId } = req.params;
-    const { coordinates, address, accuracy, speed, heading } = req.body;
-
-    // Validate required fields
-    if (!coordinates || !Array.isArray(coordinates) || coordinates.length !== 2) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid coordinates [longitude, latitude] are required'
-      });
-    }
-
-    // Find delivery tracking
-    const tracking = await DeliveryTracking.findById(trackingId);
+    const { successful, notes, contactAttempts } = req.body;
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId });
+    
     if (!tracking) {
       return res.status(404).json({
         success: false,
         message: 'Delivery tracking not found'
       });
     }
-
-    // Verify rider owns this delivery
+    
     if (tracking.rider.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'You can only update location for your own deliveries'
+        message: 'You are not assigned to this delivery'
       });
     }
-
-    // Update location
-    await tracking.updateLocation(coordinates, {
-      address,
-      accuracy,
-      speed,
-      heading
+    
+    await tracking.addPickupAttempt({
+      successful,
+      notes,
+      contactAttempts: contactAttempts || []
     });
-
+    
     res.json({
       success: true,
-      message: 'Location updated successfully',
-      data: {
-        currentLocation: tracking.currentLocation,
-        lastUpdated: tracking.currentLocation.lastUpdated
-      }
+      message: 'Pickup attempt recorded',
+      tracking: tracking.getTrackingData()
     });
   } catch (error) {
-    console.error('Update delivery location error:', error);
+    console.error('Error recording pickup attempt:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update delivery location',
+      message: 'Server error recording pickup attempt',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route POST /api/delivery/:trackingId/issues
- * @desc Report an issue during delivery
- * @access Private (Rider only)
+ * @route    POST /api/delivery/:offerId/delivery-attempt
+ * @desc     Record delivery attempt
+ * @access   Private (Assigned rider only)
  */
-router.post('/:trackingId/issues', auth, async (req, res) => {
+router.post('/:offerId/delivery-attempt', [
+  auth,
+  requireRole('rider'),
+  check('successful', 'Successful status is required').isBoolean(),
+  check('notes', 'Notes are required').notEmpty()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+  
   try {
-    // Verify user is rider
-    if (req.user.role !== 'rider') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only riders can report delivery issues'
-      });
-    }
-
-    const { trackingId } = req.params;
-    const { type, description, location, severity, photos } = req.body;
-
-    // Validate required fields
-    if (!type || !description) {
-      return res.status(400).json({
-        success: false,
-        message: 'Issue type and description are required'
-      });
-    }
-
-    // Find delivery tracking
-    const tracking = await DeliveryTracking.findById(trackingId);
+    const {
+      successful,
+      notes,
+      deliveryMethod,
+      signatureRequired,
+      signatureObtained,
+      photoTaken,
+      contactAttempts
+    } = req.body;
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId });
+    
     if (!tracking) {
       return res.status(404).json({
         success: false,
         message: 'Delivery tracking not found'
       });
     }
-
-    // Verify rider owns this delivery
+    
     if (tracking.rider.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'You can only report issues for your own deliveries'
+        message: 'You are not assigned to this delivery'
       });
     }
+    
+    await tracking.addDeliveryAttempt({
+      successful,
+      notes,
+      deliveryMethod,
+      signatureRequired: signatureRequired || false,
+      signatureObtained: signatureObtained || false,
+      photoTaken: photoTaken || false,
+      contactAttempts: contactAttempts || []
+    });
+    
+    res.json({
+      success: true,
+      message: 'Delivery attempt recorded',
+      tracking: tracking.getTrackingData()
+    });
+  } catch (error) {
+    console.error('Error recording delivery attempt:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error recording delivery attempt',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
 
-    // Report issue
+/**
+ * @route    POST /api/delivery/:offerId/issue
+ * @desc     Report delivery issue
+ * @access   Private (Assigned rider only)
+ */
+router.post('/:offerId/issue', [
+  auth,
+  requireRole('rider'),
+  check('type', 'Issue type is required').isIn([
+    'traffic_delay',
+    'weather_delay',
+    'vehicle_breakdown',
+    'package_damaged',
+    'wrong_address',
+    'customer_unavailable',
+    'access_denied',
+    'safety_concern',
+    'other'
+  ]),
+  check('description', 'Description is required').notEmpty()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+  
+  try {
+    const { type, description, impactOnDelivery } = req.body;
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId });
+    
+    if (!tracking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery tracking not found'
+      });
+    }
+    
+    if (tracking.rider.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this delivery'
+      });
+    }
+    
     await tracking.reportIssue({
       type,
       description,
       reportedBy: req.user.id,
-      location,
-      severity,
-      photos
+      impactOnDelivery: impactOnDelivery || 'minor_delay'
     });
-
-    // Send notification to business
-    if (notificationService) {
-      try {
-        await notificationService.send({
-          userId: tracking.business,
-          type: 'delivery_issue',
-          title: 'Delivery Issue Reported',
-          message: `An issue has been reported for your delivery: ${description}`,
-          data: {
-            trackingId: tracking._id,
-            offerId: tracking.offer,
-            issueType: type,
-            severity: severity || 'medium'
-          }
-        });
-      } catch (notificationError) {
-        console.error('Failed to send issue notification:', notificationError);
-      }
-    }
-
-    res.status(201).json({
+    
+    res.json({
       success: true,
       message: 'Issue reported successfully',
-      data: {
-        issue: tracking.issues[tracking.issues.length - 1],
-        tracking: tracking.getSummary()
-      }
+      tracking: tracking.getTrackingData()
     });
   } catch (error) {
-    console.error('Report delivery issue error:', error);
+    console.error('Error reporting issue:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to report delivery issue',
+      message: 'Server error reporting issue',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route POST /api/delivery/:trackingId/confirm
- * @desc Confirm delivery completion
- * @access Private (Rider only)
+ * @route    PUT /api/delivery/:offerId/eta
+ * @desc     Update estimated arrival time
+ * @access   Private (Assigned rider only)
  */
-router.post('/:trackingId/confirm', auth, async (req, res) => {
+router.put('/:offerId/eta', [
+  auth,
+  requireRole('rider'),
+  check('estimatedArrivalTime', 'Estimated arrival time is required').isISO8601()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+  
   try {
-    // Verify user is rider
-    if (req.user.role !== 'rider') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only riders can confirm deliveries'
-      });
-    }
-
-    const { trackingId } = req.params;
-    const { confirmationType, confirmationData, deliveryLocation, notes } = req.body;
-
-    // Validate required fields
-    if (!confirmationType) {
-      return res.status(400).json({
-        success: false,
-        message: 'Confirmation type is required'
-      });
-    }
-
-    // Find delivery tracking
-    const tracking = await DeliveryTracking.findById(trackingId);
+    const { estimatedArrivalTime } = req.body;
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId });
+    
     if (!tracking) {
       return res.status(404).json({
         success: false,
         message: 'Delivery tracking not found'
       });
     }
-
-    // Verify rider owns this delivery
+    
     if (tracking.rider.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'You can only confirm your own deliveries'
+        message: 'You are not assigned to this delivery'
       });
     }
-
-    // Confirm delivery
-    await tracking.confirmDelivery({
-      confirmationType,
-      confirmationData,
-      deliveryLocation,
-      notes
-    });
-
-    // Send notification to business
-    if (notificationService) {
-      try {
-        await notificationService.sendOfferNotification(
-          tracking.offer,
-          'delivered',
-          { 
-            data: { 
-              trackingId: tracking._id,
-              confirmationType,
-              deliveredAt: new Date()
-            }
-          }
-        );
-      } catch (notificationError) {
-        console.error('Failed to send delivery confirmation notification:', notificationError);
-      }
-    }
-
+    
+    await tracking.updateETA(new Date(estimatedArrivalTime));
+    
     res.json({
       success: true,
-      message: 'Delivery confirmed successfully',
-      data: {
-        deliveryConfirmation: tracking.deliveryConfirmation,
-        tracking: tracking.getSummary()
-      }
+      message: 'ETA updated successfully',
+      estimatedArrivalTime: tracking.estimatedArrivalTime,
+      estimatedTimeRemaining: tracking.estimatedTimeRemaining
     });
   } catch (error) {
-    console.error('Confirm delivery error:', error);
+    console.error('Error updating ETA:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to confirm delivery',
+      message: 'Server error updating ETA',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route GET /api/delivery/:trackingId
- * @desc Get delivery tracking details
- * @access Private (Business owner or Rider)
+ * @route    GET /api/delivery/rider/active
+ * @desc     Get active deliveries for rider
+ * @access   Private (Rider only)
  */
-router.get('/:trackingId', auth, async (req, res) => {
+router.get('/rider/active', auth, requireRole('rider'), async (req, res) => {
   try {
-    const { trackingId } = req.params;
-    const { detailed = false } = req.query;
+    const activeDeliveries = await DeliveryTracking.getActiveDeliveriesForRider(req.user.id);
+    
+    const deliveriesWithLocation = await Promise.all(
+      activeDeliveries.map(async (delivery) => {
+        const recentLocation = await LocationTracking.findOne({
+          rider: delivery.rider,
+          offer: delivery.offer,
+          isActive: true
+        }).sort({ timestamp: -1 });
+        
+        const deliveryData = delivery.getTrackingData();
+        if (recentLocation) {
+          deliveryData.currentLocation = {
+            coordinates: recentLocation.currentLocation.coordinates,
+            timestamp: recentLocation.timestamp
+          };
+        }
+        
+        return deliveryData;
+      })
+    );
+    
+    res.json({
+      success: true,
+      activeDeliveries: deliveriesWithLocation,
+      count: deliveriesWithLocation.length
+    });
+  } catch (error) {
+    console.error('Error fetching active deliveries:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching active deliveries',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
 
-    // Find delivery tracking
-    const tracking = await DeliveryTracking.findById(trackingId)
+/**
+ * @route    GET /api/delivery/business/active
+ * @desc     Get active deliveries for business
+ * @access   Private (Business only)
+ */
+router.get('/business/active', auth, requireRole('business'), async (req, res) => {
+  try {
+    const activeDeliveries = await DeliveryTracking.find({
+      business: req.user.id,
+      isActive: true
+    })
       .populate('offer', 'title pickup delivery payment')
-      .populate('rider', 'name email profile.phone')
-      .populate('business', 'businessName email profile.phone');
-
-    if (!tracking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Delivery tracking not found'
-      });
-    }
-
-    // Verify user has access to this tracking
-    const userId = req.user.id;
-    if (tracking.rider._id.toString() !== userId && tracking.business._id.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
-    }
-
-    // Return appropriate level of detail
-    const trackingData = detailed === 'true' ? 
-      tracking.getDetailedTracking() : 
-      tracking.getSummary();
-
+      .populate('rider', 'name profile.phone profile.vehicleType')
+      .sort({ acceptedAt: -1 });
+    
+    const deliveriesWithLocation = await Promise.all(
+      activeDeliveries.map(async (delivery) => {
+        const recentLocation = await LocationTracking.findOne({
+          rider: delivery.rider,
+          offer: delivery.offer,
+          isActive: true
+        }).sort({ timestamp: -1 });
+        
+        const deliveryData = delivery.getTrackingData();
+        if (recentLocation) {
+          deliveryData.currentLocation = {
+            coordinates: recentLocation.currentLocation.coordinates,
+            timestamp: recentLocation.timestamp
+          };
+        }
+        
+        return deliveryData;
+      })
+    );
+    
     res.json({
       success: true,
-      data: {
-        tracking: trackingData,
-        offer: tracking.offer,
-        rider: tracking.rider,
-        business: tracking.business
-      }
+      activeDeliveries: deliveriesWithLocation,
+      count: deliveriesWithLocation.length
     });
   } catch (error) {
-    console.error('Get delivery tracking error:', error);
+    console.error('Error fetching business active deliveries:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve delivery tracking',
+      message: 'Server error fetching active deliveries',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route GET /api/delivery/offer/:offerId
- * @desc Get delivery tracking by offer ID
- * @access Private (Business owner or Rider)
+ * @route    GET /api/delivery/status/:status
+ * @desc     Get deliveries by status
+ * @access   Private (Admin only)
  */
-router.get('/offer/:offerId', auth, async (req, res) => {
+router.get('/status/:status', auth, requireRole('admin'), async (req, res) => {
   try {
-    const { offerId } = req.params;
-
-    // Find delivery tracking by offer
-    const tracking = await DeliveryTracking.getByOfferId(offerId);
-
-    if (!tracking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Delivery tracking not found for this offer'
-      });
-    }
-
-    // Verify user has access to this tracking
-    const userId = req.user.id;
-    if (tracking.rider._id.toString() !== userId && tracking.business._id.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        tracking: tracking.getSummary(),
-        offer: tracking.offer,
-        rider: tracking.rider,
-        business: tracking.business
-      }
-    });
-  } catch (error) {
-    console.error('Get delivery tracking by offer error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve delivery tracking',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-/**
- * @route GET /api/delivery/rider/active
- * @desc Get active deliveries for the authenticated rider
- * @access Private (Rider only)
- */
-router.get('/rider/active', auth, async (req, res) => {
-  try {
-    // Verify user is rider
-    if (req.user.role !== 'rider') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only riders can access active deliveries'
-      });
-    }
-
-    // Get active deliveries
-    const activeDeliveries = await DeliveryTracking.getActiveDeliveries(req.user.id);
-
-    res.json({
-      success: true,
-      data: {
-        activeDeliveries: activeDeliveries.map(tracking => ({
-          ...tracking.getSummary(),
-          offer: tracking.offer,
-          business: tracking.business
-        })),
-        count: activeDeliveries.length
-      }
-    });
-  } catch (error) {
-    console.error('Get active deliveries error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve active deliveries',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-/**
- * @route GET /api/delivery/business/deliveries
- * @desc Get deliveries for the authenticated business
- * @access Private (Business only)
- */
-router.get('/business/deliveries', auth, async (req, res) => {
-  try {
-    // Verify user is business
-    if (req.user.role !== 'business') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only businesses can access delivery list'
-      });
-    }
-
-    const {
-      status,
-      page = 1,
-      limit = 20
-    } = req.query;
-
-    const skip = (page - 1) * limit;
-    const options = {
-      status,
+    const { status } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const deliveries = await DeliveryTracking.getByStatus(status, {
       limit: parseInt(limit),
       skip
-    };
-
-    // Get business deliveries
-    const deliveries = await DeliveryTracking.getBusinessDeliveries(req.user.id, options);
-
+    });
+    
+    const total = await DeliveryTracking.countDocuments({
+      currentStatus: status,
+      isActive: status !== 'completed' && status !== 'cancelled'
+    });
+    
     res.json({
       success: true,
-      data: {
-        deliveries: deliveries.map(tracking => ({
-          ...tracking.getSummary(),
-          offer: tracking.offer,
-          rider: tracking.rider
-        })),
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total: deliveries.length
-        }
+      deliveries: deliveries.map(d => d.getTrackingData()),
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
       }
     });
   } catch (error) {
-    console.error('Get business deliveries error:', error);
+    console.error('Error fetching deliveries by status:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve business deliveries',
+      message: 'Server error fetching deliveries',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route PUT /api/delivery/:trackingId/estimate
- * @desc Update estimated delivery time
- * @access Private (Rider only)
+ * @route    GET /api/delivery/stats
+ * @desc     Get delivery statistics
+ * @access   Private (Admin only)
  */
-router.put('/:trackingId/estimate', auth, async (req, res) => {
+router.get('/stats', auth, requireRole('admin'), async (req, res) => {
   try {
-    // Verify user is rider
-    if (req.user.role !== 'rider') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only riders can update delivery estimates'
-      });
-    }
+    const { startDate, endDate, riderId, businessId } = req.query;
+    
+    const filters = {};
+    if (startDate) filters.startDate = startDate;
+    if (endDate) filters.endDate = endDate;
+    if (riderId) filters.riderId = riderId;
+    if (businessId) filters.businessId = businessId;
+    
+    const stats = await DeliveryTracking.getDeliveryStats(filters);
+    
+    // Get current active deliveries count
+    const activeCount = await DeliveryTracking.countDocuments({ isActive: true });
+    
+    // Get status breakdown
+    const statusBreakdown = await DeliveryTracking.aggregate([
+      { $match: { isActive: true } },
+      {
+        $group: {
+          _id: '$currentStatus',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          status: '$_id',
+          count: 1
+        }
+      }
+    ]);
+    
+    res.json({
+      success: true,
+      stats: {
+        ...stats,
+        activeDeliveries: activeCount,
+        statusBreakdown
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching delivery stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching delivery statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
 
-    const { trackingId } = req.params;
-    const { distance, traffic, weather, timeOfDay } = req.body;
-
-    // Find delivery tracking
-    const tracking = await DeliveryTracking.findById(trackingId);
+/**
+ * @route    GET /api/delivery/:offerId/history
+ * @desc     Get delivery event history
+ * @access   Private (Business owner or assigned rider)
+ */
+router.get('/:offerId/history', auth, async (req, res) => {
+  try {
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId })
+      .populate('rider', 'name profile.phone')
+      .populate('business', 'name profile.businessName');
+    
     if (!tracking) {
       return res.status(404).json({
         success: false,
         message: 'Delivery tracking not found'
       });
     }
-
-    // Verify rider owns this delivery
-    if (tracking.rider.toString() !== req.user.id) {
+    
+    // Check permissions
+    const isBusinessOwner = tracking.business._id.toString() === req.user.id;
+    const isAssignedRider = tracking.rider._id.toString() === req.user.id;
+    
+    if (!isBusinessOwner && !isAssignedRider) {
       return res.status(403).json({
         success: false,
-        message: 'You can only update estimates for your own deliveries'
+        message: 'Access denied'
       });
     }
-
-    // Update estimated delivery
-    await tracking.updateEstimatedDelivery({
-      distance,
-      traffic,
-      weather,
-      timeOfDay
-    });
-
+    
     res.json({
       success: true,
-      message: 'Delivery estimate updated successfully',
-      data: {
-        estimatedDelivery: tracking.estimatedDelivery,
-        estimatedTimeRemaining: tracking.estimatedTimeRemaining
+      history: {
+        offer: req.params.offerId,
+        rider: tracking.rider,
+        business: tracking.business,
+        currentStatus: tracking.currentStatus,
+        events: tracking.events,
+        pickupAttempts: tracking.pickupAttempts,
+        deliveryAttempts: tracking.deliveryAttempts,
+        issues: tracking.issues,
+        metrics: tracking.calculateMetrics()
       }
     });
   } catch (error) {
-    console.error('Update delivery estimate error:', error);
+    console.error('Error fetching delivery history:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update delivery estimate',
+      message: 'Server error fetching delivery history',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 /**
- * @route GET /api/delivery/stats
- * @desc Get delivery statistics
- * @access Private
+ * @route    POST /api/delivery/:offerId/calculate-eta
+ * @desc     Calculate estimated arrival time based on current location and traffic
+ * @access   Private (Assigned rider only)
  */
-router.get('/stats', auth, async (req, res) => {
+router.post('/:offerId/calculate-eta', [
+  auth,
+  requireRole('rider'),
+  check('currentLocation', 'Current location is required').notEmpty(),
+  check('currentLocation.coordinates', 'Valid coordinates are required').isArray({ min: 2, max: 2 })
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+  
   try {
-    const {
-      startDate,
-      endDate
-    } = req.query;
-
-    // Build filters based on user role
-    const filters = {
-      startDate,
-      endDate
-    };
-
-    if (req.user.role === 'rider') {
-      filters.riderId = req.user.id;
-    } else if (req.user.role === 'business') {
-      filters.businessId = req.user.id;
+    const { currentLocation, vehicleType = 'bike', trafficFactor = 1.0 } = req.body;
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId })
+      .populate('offer', 'pickup delivery estimatedDistance');
+    
+    if (!tracking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery tracking not found'
+      });
     }
-
-    // Get delivery statistics
-    const stats = await DeliveryTracking.getDeliveryStats(filters);
-
+    
+    if (tracking.rider.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this delivery'
+      });
+    }
+    
+    // Calculate ETA based on current status and location
+    let destinationCoords;
+    let estimatedMinutes = 0;
+    
+    if (['accepted', 'heading_to_pickup'].includes(tracking.currentStatus)) {
+      // Going to pickup location
+      destinationCoords = tracking.offer.pickup.coordinates;
+    } else if (['picked_up', 'in_transit', 'heading_to_delivery'].includes(tracking.currentStatus)) {
+      // Going to delivery location
+      destinationCoords = tracking.offer.delivery.coordinates;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'ETA calculation not applicable for current delivery status'
+      });
+    }
+    
+    // Calculate distance using Haversine formula
+    const distance = calculateDistance(currentLocation.coordinates, destinationCoords);
+    
+    // Calculate time based on vehicle type and traffic
+    const speeds = {
+      bike: 15,      // km/h
+      scooter: 25,   // km/h
+      car: 30,       // km/h
+      van: 25        // km/h
+    };
+    
+    const baseSpeed = speeds[vehicleType] || speeds.bike;
+    const adjustedSpeed = baseSpeed / trafficFactor; // Adjust for traffic
+    const timeInHours = (distance / 1000) / adjustedSpeed;
+    estimatedMinutes = Math.round(timeInHours * 60);
+    
+    // Add buffer time (5-15 minutes depending on distance)
+    const bufferTime = Math.max(5, Math.min(15, estimatedMinutes * 0.2));
+    estimatedMinutes += bufferTime;
+    
+    // Calculate ETA
+    const estimatedArrivalTime = new Date(Date.now() + estimatedMinutes * 60 * 1000);
+    
+    // Update tracking with new ETA
+    await tracking.updateETA(estimatedArrivalTime);
+    
     res.json({
       success: true,
-      data: {
-        stats,
-        period: {
-          startDate,
-          endDate
-        }
+      eta: {
+        estimatedArrivalTime,
+        estimatedMinutes,
+        distance: Math.round(distance),
+        currentLocation: currentLocation.coordinates,
+        destination: destinationCoords,
+        vehicleType,
+        trafficFactor
       }
     });
   } catch (error) {
-    console.error('Get delivery stats error:', error);
+    console.error('Error calculating ETA:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve delivery statistics',
+      message: 'Server error calculating ETA',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
+
+/**
+ * @route    GET /api/delivery/:offerId/route-optimization
+ * @desc     Get route optimization suggestions
+ * @access   Private (Assigned rider only)
+ */
+router.get('/:offerId/route-optimization', auth, requireRole('rider'), async (req, res) => {
+  try {
+    const { currentLocation } = req.query;
+    
+    if (!currentLocation) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current location is required'
+      });
+    }
+    
+    const coords = currentLocation.split(',').map(Number);
+    if (coords.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid location format. Use: lng,lat'
+      });
+    }
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId })
+      .populate('offer', 'pickup delivery');
+    
+    if (!tracking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery tracking not found'
+      });
+    }
+    
+    if (tracking.rider.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this delivery'
+      });
+    }
+    
+    // Simple route optimization (in a real app, you'd use Google Maps API or similar)
+    const pickupCoords = tracking.offer.pickup.coordinates;
+    const deliveryCoords = tracking.offer.delivery.coordinates;
+    
+    const distanceToPickup = calculateDistance(coords, pickupCoords);
+    const distanceToDelivery = calculateDistance(coords, deliveryCoords);
+    const pickupToDelivery = calculateDistance(pickupCoords, deliveryCoords);
+    
+    // Calculate optimal route
+    let routeSuggestion;
+    if (tracking.currentStatus === 'accepted' || tracking.currentStatus === 'heading_to_pickup') {
+      routeSuggestion = {
+        nextDestination: 'pickup',
+        coordinates: pickupCoords,
+        address: tracking.offer.pickup.address,
+        distance: Math.round(distanceToPickup),
+        estimatedTime: Math.round((distanceToPickup / 1000) / 15 * 60), // Assuming 15 km/h
+        instructions: 'Head to pickup location'
+      };
+    } else if (tracking.currentStatus === 'picked_up' || tracking.currentStatus === 'in_transit') {
+      routeSuggestion = {
+        nextDestination: 'delivery',
+        coordinates: deliveryCoords,
+        address: tracking.offer.delivery.address,
+        distance: Math.round(distanceToDelivery),
+        estimatedTime: Math.round((distanceToDelivery / 1000) / 15 * 60),
+        instructions: 'Head to delivery location'
+      };
+    }
+    
+    res.json({
+      success: true,
+      routeOptimization: {
+        currentLocation: coords,
+        suggestion: routeSuggestion,
+        totalDistance: Math.round(distanceToPickup + pickupToDelivery),
+        alternativeRoutes: [
+          {
+            name: 'Fastest Route',
+            description: 'Direct route with minimal stops',
+            estimatedTime: routeSuggestion ? routeSuggestion.estimatedTime : 0
+          },
+          {
+            name: 'Scenic Route',
+            description: 'Longer but more pleasant route',
+            estimatedTime: routeSuggestion ? Math.round(routeSuggestion.estimatedTime * 1.2) : 0
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error getting route optimization:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error getting route optimization',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @route    POST /api/delivery/:offerId/location-update
+ * @desc     Update rider location and recalculate ETA
+ * @access   Private (Assigned rider only)
+ */
+router.post('/:offerId/location-update', [
+  auth,
+  requireRole('rider'),
+  check('coordinates', 'Valid coordinates are required').isArray({ min: 2, max: 2 }),
+  check('coordinates.*', 'Coordinates must be numbers').isNumeric()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+  
+  try {
+    const { coordinates, accuracy, heading, speed, batteryLevel } = req.body;
+    
+    const tracking = await DeliveryTracking.findOne({ offer: req.params.offerId })
+      .populate('offer', 'pickup delivery');
+    
+    if (!tracking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery tracking not found'
+      });
+    }
+    
+    if (tracking.rider.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this delivery'
+      });
+    }
+    
+    // Update location in LocationTracking
+    await LocationTracking.updateRiderLocation(req.user.id, {
+      coordinates,
+      accuracy,
+      heading,
+      speed,
+      batteryLevel,
+      offerId: req.params.offerId,
+      trackingType: getTrackingTypeFromStatus(tracking.currentStatus)
+    });
+    
+    // Recalculate ETA if delivery is active
+    if (tracking.isActive && ['heading_to_pickup', 'picked_up', 'in_transit'].includes(tracking.currentStatus)) {
+      let destinationCoords;
+      if (['heading_to_pickup'].includes(tracking.currentStatus)) {
+        destinationCoords = tracking.offer.pickup.coordinates;
+      } else {
+        destinationCoords = tracking.offer.delivery.coordinates;
+      }
+      
+      const distance = calculateDistance(coordinates, destinationCoords);
+      const estimatedMinutes = Math.round((distance / 1000) / 15 * 60) + 10; // 15 km/h + 10 min buffer
+      const estimatedArrivalTime = new Date(Date.now() + estimatedMinutes * 60 * 1000);
+      
+      await tracking.updateETA(estimatedArrivalTime);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Location updated successfully',
+      location: {
+        coordinates,
+        timestamp: new Date(),
+        accuracy,
+        heading,
+        speed
+      },
+      estimatedArrivalTime: tracking.estimatedArrivalTime,
+      estimatedTimeRemaining: tracking.estimatedTimeRemaining
+    });
+  } catch (error) {
+    console.error('Error updating location:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error updating location',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @route    GET /api/delivery/analytics/performance
+ * @desc     Get delivery performance analytics
+ * @access   Private (Admin only)
+ */
+router.get('/analytics/performance', auth, requireRole('admin'), async (req, res) => {
+  try {
+    const { period = 'week', riderId, businessId } = req.query;
+    
+    // Calculate date range
+    const now = new Date();
+    let startDate;
+    
+    switch (period) {
+      case 'day':
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case 'week':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    
+    const match = {
+      completedAt: { $gte: startDate, $lte: now },
+      isActive: false
+    };
+    
+    if (riderId) match.rider = new mongoose.Types.ObjectId(riderId);
+    if (businessId) match.business = new mongoose.Types.ObjectId(businessId);
+    
+    // Performance analytics aggregation
+    const analytics = await DeliveryTracking.aggregate([
+      { $match: match },
+      {
+        $addFields: {
+          totalDuration: {
+            $divide: [
+              { $subtract: ['$completedAt', '$acceptedAt'] },
+              1000 * 60 // Convert to minutes
+            ]
+          },
+          isOnTime: {
+            $lte: ['$actualDeliveryTime', '$estimatedDeliveryTime']
+          },
+          hasIssues: {
+            $gt: [{ $size: { $ifNull: ['$issues', []] } }, 0]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalDeliveries: { $sum: 1 },
+          averageDuration: { $avg: '$totalDuration' },
+          onTimeDeliveries: { $sum: { $cond: ['$isOnTime', 1, 0] } },
+          deliveriesWithIssues: { $sum: { $cond: ['$hasIssues', 1, 0] } },
+          completedDeliveries: {
+            $sum: { $cond: [{ $eq: ['$currentStatus', 'completed'] }, 1, 0] }
+          },
+          cancelledDeliveries: {
+            $sum: { $cond: [{ $eq: ['$currentStatus', 'cancelled'] }, 1, 0] }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          totalDeliveries: 1,
+          averageDuration: { $round: ['$averageDuration', 2] },
+          onTimeRate: {
+            $round: [
+              { $multiply: [{ $divide: ['$onTimeDeliveries', '$totalDeliveries'] }, 100] },
+              2
+            ]
+          },
+          issueRate: {
+            $round: [
+              { $multiply: [{ $divide: ['$deliveriesWithIssues', '$totalDeliveries'] }, 100] },
+              2
+            ]
+          },
+          completionRate: {
+            $round: [
+              { $multiply: [{ $divide: ['$completedDeliveries', '$totalDeliveries'] }, 100] },
+              2
+            ]
+          },
+          cancellationRate: {
+            $round: [
+              { $multiply: [{ $divide: ['$cancelledDeliveries', '$totalDeliveries'] }, 100] },
+              2
+            ]
+          }
+        }
+      }
+    ]);
+    
+    // Daily performance trend
+    const dailyTrend = await DeliveryTracking.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
+          deliveries: { $sum: 1 },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$currentStatus', 'completed'] }, 1, 0] }
+          }
+        }
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          _id: 0,
+          date: '$_id',
+          deliveries: 1,
+          completed: 1,
+          completionRate: {
+            $round: [
+              { $multiply: [{ $divide: ['$completed', '$deliveries'] }, 100] },
+              2
+            ]
+          }
+        }
+      }
+    ]);
+    
+    res.json({
+      success: true,
+      analytics: {
+        period,
+        summary: analytics.length > 0 ? analytics[0] : {
+          totalDeliveries: 0,
+          averageDuration: 0,
+          onTimeRate: 0,
+          issueRate: 0,
+          completionRate: 0,
+          cancellationRate: 0
+        },
+        dailyTrend
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching performance analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching performance analytics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Helper functions
+
+/**
+ * Calculate distance between two coordinate points using Haversine formula
+ * @param {Array} coords1 - [lng, lat]
+ * @param {Array} coords2 - [lng, lat]
+ * @returns {Number} Distance in meters
+ */
+function calculateDistance(coords1, coords2) {
+  const [lng1, lat1] = coords1;
+  const [lng2, lat2] = coords2;
+  
+  const R = 6371000; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lng2 - lng1) * Math.PI / 180;
+  
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  
+  return R * c;
+}
+
+/**
+ * Get tracking type based on delivery status
+ * @param {String} status - Delivery status
+ * @returns {String} Tracking type
+ */
+function getTrackingTypeFromStatus(status) {
+  const mapping = {
+    'accepted': 'idle',
+    'heading_to_pickup': 'heading_to_pickup',
+    'arrived_at_pickup': 'at_pickup',
+    'picked_up': 'heading_to_delivery',
+    'in_transit': 'heading_to_delivery',
+    'arrived_at_delivery': 'at_delivery',
+    'delivered': 'idle',
+    'completed': 'idle',
+    'cancelled': 'idle'
+  };
+  
+  return mapping[status] || 'idle';
+}
 
 module.exports = router;

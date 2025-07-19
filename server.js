@@ -20,10 +20,14 @@ if (process.env.NODE_ENV !== 'test') {
 const authRoutes = require('./routes/auth');
 const offerRoutes = require('./routes/offer');
 const notificationRoutes = require('./routes/notification');
+const earningsRoutes = require('./routes/earnings');
+const deliveryRoutes = require('./routes/delivery');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/offers', offerRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/earnings', earningsRoutes);
+app.use('/api/delivery', deliveryRoutes);
 
 app.get('/', (req, res) => {
   res.send('Last Mile API is running');

@@ -71,7 +71,8 @@
 - [x] 3. Create Location Services
 
 
-- [ ] 3.1 Implement geocoding service integration
+
+- [x] 3.1 Implement geocoding service integration
   - Create LocationService class with geocoding and reverse geocoding methods
   - Add address validation and coordinate conversion utilities
   - Write unit tests for location service methods
@@ -142,9 +143,14 @@
 
 
 
+
+
   - _Requirements: 9.1, 9.2, 9.3_
 
-- [ ] 6.2 Implement rider earnings tracking
+- [x] 6.2 Implement rider earnings tracking
+
+
+
   - Create earnings calculation utilities
 
 
@@ -159,13 +165,21 @@
 
 
 - [ ] 7. Create Delivery Tracking System
-- [ ] 7.1 Implement DeliveryTracking model
+- [x] 7.1 Implement DeliveryTracking model
+
+
+
+
   - Create delivery tracking schema with event logging
   - Add real-time location updates for active deliveries
   - Write unit tests for delivery tracking model
   - _Requirements: 6.4, 7.1, 7.2, 7.3_
 
-- [ ] 7.2 Add delivery tracking endpoints
+- [x] 7.2 Add delivery tracking endpoints
+
+
+
+
   - Create endpoints for tracking delivery progress
   - Implement estimated arrival time calculations
   - Write integration tests for delivery tracking workflows

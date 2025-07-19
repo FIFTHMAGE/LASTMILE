@@ -1,15 +1,15 @@
 const mongoose = require('mongoose');
 
 /**
- * DeliveryTracking Schema - Tracks delivery progress and events
+ * DeliveryTracking Schema - Tracks delivery progress and events for active deliveries
+ * This complements LocationTracking by focusing on delivery-specific events and milestones
  */
 const deliveryTrackingSchema = new mongoose.Schema({
-  // Core tracking information
+  // Core delivery information
   offer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Offer',
     required: true,
-    unique: true,
     index: true
   },
   rider: {
@@ -24,92 +24,53 @@ const deliveryTrackingSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-
-  // Current delivery status
+  
+  // Delivery status and progress
   currentStatus: {
     type: String,
+    enum: ['accepted', 'heading_to_pickup', 'arrived_at_pickup', 'picked_up', 'in_transit', 'arrived_at_delivery', 'delivered', 'completed', 'cancelled'],
     required: true,
-    enum: ['accepted', 'picked_up', 'in_transit', 'delivered', 'completed', 'cancelled', 'failed'],
-    default: 'accepted',
     index: true
   },
-
-  // Status timestamps
-  statusTimestamps: {
-    accepted: {
-      type: Date,
-      default: Date.now
-    },
-    picked_up: Date,
-    in_transit: Date,
-    delivered: Date,
-    completed: Date,
-    cancelled: Date,
-    failed: Date
-  },
-
-  // Current location tracking
-  currentLocation: {
-    type: {
+  
+  // Event log for delivery milestones
+  events: [{
+    eventType: {
       type: String,
-      enum: ['Point'],
-      default: 'Point'
-    },
-    coordinates: {
-      type: [Number], // [longitude, latitude]
-      index: '2dsphere'
-    },
-    address: String,
-    lastUpdated: {
-      type: Date,
-      default: Date.now
-    }
-  },
-
-  // Location history for route tracking
-  locationHistory: [{
-    coordinates: {
-      type: [Number], // [longitude, latitude]
+      enum: [
+        'delivery_accepted',
+        'heading_to_pickup',
+        'arrived_at_pickup',
+        'pickup_attempted',
+        'package_picked_up',
+        'departure_from_pickup',
+        'in_transit',
+        'arrived_at_delivery',
+        'delivery_attempted',
+        'package_delivered',
+        'delivery_completed',
+        'delivery_cancelled',
+        'issue_reported',
+        'customer_contacted',
+        'route_deviated',
+        'delay_reported'
+      ],
       required: true
     },
     timestamp: {
       type: Date,
-      default: Date.now
-    },
-    accuracy: Number, // GPS accuracy in meters
-    speed: Number, // Speed in km/h
-    heading: Number // Direction in degrees
-  }],
-
-  // Delivery events log
-  events: [{
-    type: {
-      type: String,
-      required: true,
-      enum: [
-        'offer_accepted',
-        'rider_assigned',
-        'pickup_started',
-        'package_picked_up',
-        'in_transit_started',
-        'location_updated',
-        'delivery_started',
-        'package_delivered',
-        'delivery_completed',
-        'issue_reported',
-        'delivery_cancelled',
-        'delivery_failed'
-      ]
-    },
-    timestamp: {
-      type: Date,
-      default: Date.now
+      default: Date.now,
+      required: true
     },
     location: {
-      coordinates: [Number], // [longitude, latitude]
-      address: String
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: [Number] // [lng, lat]
     },
-    description: String,
+    notes: String,
     metadata: {
       type: mongoose.Schema.Types.Mixed,
       default: {}
@@ -119,57 +80,127 @@ const deliveryTrackingSchema = new mongoose.Schema({
       ref: 'User'
     }
   }],
-
-  // Estimated delivery information
-  estimatedDelivery: {
-    estimatedTime: Date,
-    estimatedDuration: Number, // in minutes
-    distance: Number, // in kilometers
-    calculatedAt: Date,
-    factors: {
-      traffic: String, // 'light', 'moderate', 'heavy'
-      weather: String,
-      timeOfDay: String
-    }
+  
+  // Timing information
+  acceptedAt: {
+    type: Date,
+    required: true,
+    default: Date.now
   },
-
-  // Delivery confirmation details
-  deliveryConfirmation: {
-    confirmedAt: Date,
-    confirmationType: {
+  estimatedPickupTime: Date,
+  actualPickupTime: Date,
+  estimatedDeliveryTime: Date,
+  actualDeliveryTime: Date,
+  completedAt: Date,
+  
+  // Distance and route tracking
+  estimatedDistance: {
+    type: Number, // in meters
+    min: 0
+  },
+  actualDistance: {
+    type: Number, // in meters
+    min: 0
+  },
+  routeOptimized: {
+    type: Boolean,
+    default: false
+  },
+  routeDeviations: [{
+    timestamp: {
+      type: Date,
+      default: Date.now
+    },
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: [Number]
+    },
+    reason: String,
+    distanceFromRoute: Number, // in meters
+    duration: Number // in minutes
+  }],
+  
+  // Delivery attempts and issues
+  pickupAttempts: [{
+    timestamp: {
+      type: Date,
+      default: Date.now
+    },
+    successful: {
+      type: Boolean,
+      required: true
+    },
+    notes: String,
+    contactAttempts: [{
+      method: {
+        type: String,
+        enum: ['phone', 'text', 'app_notification', 'doorbell']
+      },
+      timestamp: {
+        type: Date,
+        default: Date.now
+      },
+      successful: Boolean,
+      response: String
+    }]
+  }],
+  
+  deliveryAttempts: [{
+    timestamp: {
+      type: Date,
+      default: Date.now
+    },
+    successful: {
+      type: Boolean,
+      required: true
+    },
+    notes: String,
+    deliveryMethod: {
       type: String,
-      enum: ['photo', 'signature', 'code', 'contact_confirmation', 'left_at_door']
+      enum: ['hand_to_customer', 'left_at_door', 'left_with_neighbor', 'returned_to_sender']
     },
-    confirmationData: {
-      photoUrl: String,
-      signatureUrl: String,
-      confirmationCode: String,
-      recipientName: String,
-      notes: String
-    },
-    deliveryLocation: {
-      coordinates: [Number],
-      address: String,
-      instructions: String
-    }
-  },
-
-  // Issue tracking
+    signatureRequired: Boolean,
+    signatureObtained: Boolean,
+    photoTaken: Boolean,
+    contactAttempts: [{
+      method: {
+        type: String,
+        enum: ['phone', 'text', 'app_notification', 'doorbell']
+      },
+      timestamp: {
+        type: Date,
+        default: Date.now
+      },
+      successful: Boolean,
+      response: String
+    }]
+  }],
+  
+  // Issues and delays
   issues: [{
     type: {
       type: String,
       enum: [
+        'traffic_delay',
+        'weather_delay',
+        'vehicle_breakdown',
         'package_damaged',
         'wrong_address',
-        'recipient_unavailable',
+        'customer_unavailable',
         'access_denied',
-        'vehicle_breakdown',
-        'weather_delay',
-        'traffic_delay',
+        'safety_concern',
         'other'
-      ]
+      ],
+      required: true
     },
-    description: String,
+    description: {
+      type: String,
+      required: true
+    },
     reportedAt: {
       type: Date,
       default: Date.now
@@ -178,59 +209,83 @@ const deliveryTrackingSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
-    location: {
-      coordinates: [Number],
-      address: String
-    },
-    severity: {
-      type: String,
-      enum: ['low', 'medium', 'high', 'critical'],
-      default: 'medium'
-    },
     resolved: {
       type: Boolean,
       default: false
     },
     resolvedAt: Date,
     resolution: String,
-    photos: [String] // URLs to issue photos
+    impactOnDelivery: {
+      type: String,
+      enum: ['none', 'minor_delay', 'major_delay', 'delivery_failed', 'delivery_cancelled']
+    }
   }],
-
+  
+  // Customer communication
+  customerCommunications: [{
+    type: {
+      type: String,
+      enum: ['sms', 'email', 'push_notification', 'phone_call', 'in_app_message']
+    },
+    content: String,
+    sentAt: {
+      type: Date,
+      default: Date.now
+    },
+    delivered: Boolean,
+    read: Boolean,
+    responded: Boolean,
+    response: String
+  }],
+  
   // Performance metrics
   metrics: {
-    totalDistance: {
-      type: Number,
-      default: 0 // in kilometers
-    },
-    totalDuration: {
-      type: Number,
-      default: 0 // in minutes
-    },
-    pickupDuration: Number, // time from accepted to picked up
-    transitDuration: Number, // time from picked up to delivered
-    deliveryDuration: Number, // time from delivered to completed
+    totalDuration: Number, // in minutes
+    pickupDuration: Number, // time spent at pickup location
+    transitDuration: Number, // time spent in transit
+    deliveryDuration: Number, // time spent at delivery location
     averageSpeed: Number, // in km/h
-    routeEfficiency: Number, // percentage (actual vs optimal route)
-    onTimeDelivery: Boolean // delivered within estimated time
+    fuelEfficiency: Number, // if available
+    customerSatisfactionScore: Number, // 1-5 rating
+    onTimePerformance: Boolean
   },
-
-  // Additional metadata
-  metadata: {
-    source: {
+  
+  // Real-time tracking status
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
+  lastLocationUpdate: Date,
+  estimatedArrivalTime: Date,
+  
+  // Notifications sent
+  notificationsSent: [{
+    type: {
       type: String,
-      default: 'mobile_app',
-      enum: ['mobile_app', 'web_app', 'api', 'system']
+      enum: ['pickup_confirmed', 'in_transit', 'arriving_soon', 'delivered', 'delayed', 'issue_reported']
     },
-    deviceInfo: {
-      platform: String, // 'ios', 'android', 'web'
-      version: String,
-      userAgent: String
-    },
-    networkInfo: {
-      connectionType: String, // 'wifi', 'cellular', 'offline'
-      signalStrength: Number
+    recipients: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      channel: {
+        type: String,
+        enum: ['email', 'sms', 'push', 'in_app']
+      },
+      sentAt: {
+        type: Date,
+        default: Date.now
+      },
+      delivered: Boolean
+    }],
+    content: String,
+    sentAt: {
+      type: Date,
+      default: Date.now
     }
-  }
+  }]
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
@@ -238,203 +293,198 @@ const deliveryTrackingSchema = new mongoose.Schema({
 });
 
 // Indexes for performance
-deliveryTrackingSchema.index({ offer: 1, currentStatus: 1 });
-deliveryTrackingSchema.index({ rider: 1, currentStatus: 1 });
+deliveryTrackingSchema.index({ offer: 1 }, { unique: true }); // One tracking record per offer
+deliveryTrackingSchema.index({ rider: 1, isActive: 1, createdAt: -1 });
 deliveryTrackingSchema.index({ business: 1, currentStatus: 1 });
-deliveryTrackingSchema.index({ 'currentLocation.coordinates': '2dsphere' });
+deliveryTrackingSchema.index({ currentStatus: 1, isActive: 1 });
 deliveryTrackingSchema.index({ 'events.timestamp': -1 });
-deliveryTrackingSchema.index({ 'statusTimestamps.accepted': -1 });
-deliveryTrackingSchema.index({ 'estimatedDelivery.estimatedTime': 1 });
 
-// Virtual for delivery duration
-deliveryTrackingSchema.virtual('totalDeliveryTime').get(function() {
-  if (this.statusTimestamps.completed && this.statusTimestamps.accepted) {
-    return Math.round((this.statusTimestamps.completed - this.statusTimestamps.accepted) / (1000 * 60)); // minutes
-  }
-  return null;
-});
-
-// Virtual for current delivery phase
-deliveryTrackingSchema.virtual('currentPhase').get(function() {
-  const status = this.currentStatus;
-  switch (status) {
-    case 'accepted':
-      return 'awaiting_pickup';
-    case 'picked_up':
-      return 'pickup_completed';
-    case 'in_transit':
-      return 'en_route';
-    case 'delivered':
-      return 'awaiting_confirmation';
-    case 'completed':
-      return 'delivery_complete';
-    case 'cancelled':
-    case 'failed':
-      return 'delivery_ended';
-    default:
-      return 'unknown';
-  }
-});
-
-// Virtual for delivery progress percentage
+// Virtual for current progress percentage
 deliveryTrackingSchema.virtual('progressPercentage').get(function() {
-  const statusOrder = ['accepted', 'picked_up', 'in_transit', 'delivered', 'completed'];
-  const currentIndex = statusOrder.indexOf(this.currentStatus);
+  const statusProgress = {
+    'accepted': 10,
+    'heading_to_pickup': 20,
+    'arrived_at_pickup': 30,
+    'picked_up': 50,
+    'in_transit': 70,
+    'arrived_at_delivery': 85,
+    'delivered': 95,
+    'completed': 100,
+    'cancelled': 0
+  };
   
-  if (currentIndex === -1) return 0;
-  if (this.currentStatus === 'completed') return 100;
-  
-  return Math.round((currentIndex / (statusOrder.length - 1)) * 100);
+  return statusProgress[this.currentStatus] || 0;
 });
 
 // Virtual for estimated time remaining
 deliveryTrackingSchema.virtual('estimatedTimeRemaining').get(function() {
-  if (!this.estimatedDelivery.estimatedTime) return null;
+  if (!this.estimatedDeliveryTime) return null;
   
   const now = new Date();
-  const estimated = new Date(this.estimatedDelivery.estimatedTime);
-  const remaining = Math.round((estimated - now) / (1000 * 60)); // minutes
+  const remaining = this.estimatedDeliveryTime.getTime() - now.getTime();
   
-  return remaining > 0 ? remaining : 0;
+  return remaining > 0 ? Math.round(remaining / (1000 * 60)) : 0; // in minutes
 });
 
-// Pre-save middleware to update metrics
-deliveryTrackingSchema.pre('save', function(next) {
-  // Calculate total distance from location history
-  if (this.locationHistory && this.locationHistory.length > 1) {
-    let totalDistance = 0;
-    for (let i = 1; i < this.locationHistory.length; i++) {
-      const prev = this.locationHistory[i - 1];
-      const curr = this.locationHistory[i];
-      totalDistance += this._calculateDistance(prev.coordinates, curr.coordinates);
-    }
-    this.metrics.totalDistance = totalDistance;
-  }
-
-  // Calculate phase durations
-  if (this.statusTimestamps.picked_up && this.statusTimestamps.accepted) {
-    this.metrics.pickupDuration = Math.round(
-      (this.statusTimestamps.picked_up - this.statusTimestamps.accepted) / (1000 * 60)
-    );
-  }
-
-  if (this.statusTimestamps.delivered && this.statusTimestamps.picked_up) {
-    this.metrics.transitDuration = Math.round(
-      (this.statusTimestamps.delivered - this.statusTimestamps.picked_up) / (1000 * 60)
-    );
-  }
-
-  if (this.statusTimestamps.completed && this.statusTimestamps.delivered) {
-    this.metrics.deliveryDuration = Math.round(
-      (this.statusTimestamps.completed - this.statusTimestamps.delivered) / (1000 * 60)
-    );
-  }
-
-  // Calculate total duration
-  if (this.statusTimestamps.completed && this.statusTimestamps.accepted) {
-    this.metrics.totalDuration = Math.round(
-      (this.statusTimestamps.completed - this.statusTimestamps.accepted) / (1000 * 60)
-    );
-  }
-
-  // Calculate average speed
-  if (this.metrics.totalDistance > 0 && this.metrics.totalDuration > 0) {
-    this.metrics.averageSpeed = Math.round(
-      (this.metrics.totalDistance / (this.metrics.totalDuration / 60)) * 100
-    ) / 100;
-  }
-
-  next();
+// Virtual for delivery duration
+deliveryTrackingSchema.virtual('totalDeliveryDuration').get(function() {
+  if (!this.completedAt) return null;
+  
+  const duration = this.completedAt.getTime() - this.acceptedAt.getTime();
+  return Math.round(duration / (1000 * 60)); // in minutes
 });
 
 // Instance Methods
 
 /**
- * Update delivery status with event logging
- * @param {String} newStatus - New delivery status
- * @param {Object} options - Additional options
+ * Add a new event to the delivery tracking
+ * @param {String} eventType - Type of event
+ * @param {Object} eventData - Event data
  * @returns {Promise<DeliveryTracking>}
  */
-deliveryTrackingSchema.methods.updateStatus = async function(newStatus, options = {}) {
-  const { location, description, reportedBy, metadata = {} } = options;
-
-  // Validate status transition
-  if (!this._isValidStatusTransition(this.currentStatus, newStatus)) {
-    throw new Error(`Invalid status transition from ${this.currentStatus} to ${newStatus}`);
-  }
-
-  // Update current status and timestamp
-  this.currentStatus = newStatus;
-  this.statusTimestamps[newStatus] = new Date();
-
-  // Add event to log
+deliveryTrackingSchema.methods.addEvent = async function(eventType, eventData = {}) {
+  const {
+    location,
+    notes,
+    metadata = {},
+    reportedBy
+  } = eventData;
+  
   const event = {
-    type: this._getEventTypeForStatus(newStatus),
+    eventType,
     timestamp: new Date(),
-    description: description || `Status updated to ${newStatus}`,
-    reportedBy,
-    metadata
+    notes,
+    metadata,
+    reportedBy
   };
-
-  if (location) {
-    event.location = location;
+  
+  if (location && location.coordinates) {
+    event.location = {
+      type: 'Point',
+      coordinates: location.coordinates
+    };
   }
-
+  
   this.events.push(event);
-
-  return await this.save();
+  
+  // Update status based on event type
+  this.updateStatusFromEvent(eventType);
+  
+  await this.save();
+  return this;
 };
 
 /**
- * Update current location
- * @param {Array} coordinates - [longitude, latitude]
- * @param {Object} options - Additional location data
+ * Update delivery status based on event type
+ * @param {String} eventType - Event type
+ */
+deliveryTrackingSchema.methods.updateStatusFromEvent = function(eventType) {
+  const statusMapping = {
+    'delivery_accepted': 'accepted',
+    'heading_to_pickup': 'heading_to_pickup',
+    'arrived_at_pickup': 'arrived_at_pickup',
+    'package_picked_up': 'picked_up',
+    'in_transit': 'in_transit',
+    'arrived_at_delivery': 'arrived_at_delivery',
+    'package_delivered': 'delivered',
+    'delivery_completed': 'completed',
+    'delivery_cancelled': 'cancelled'
+  };
+  
+  if (statusMapping[eventType]) {
+    this.currentStatus = statusMapping[eventType];
+    
+    // Update timing fields
+    const now = new Date();
+    switch (eventType) {
+      case 'package_picked_up':
+        this.actualPickupTime = now;
+        break;
+      case 'package_delivered':
+        this.actualDeliveryTime = now;
+        break;
+      case 'delivery_completed':
+        this.completedAt = now;
+        this.isActive = false;
+        break;
+      case 'delivery_cancelled':
+        this.completedAt = now;
+        this.isActive = false;
+        break;
+    }
+  }
+};
+
+/**
+ * Add pickup attempt
+ * @param {Object} attemptData - Attempt data
  * @returns {Promise<DeliveryTracking>}
  */
-deliveryTrackingSchema.methods.updateLocation = async function(coordinates, options = {}) {
-  const { address, accuracy, speed, heading } = options;
-
-  // Update current location
-  this.currentLocation = {
-    type: 'Point',
-    coordinates,
-    address,
-    lastUpdated: new Date()
-  };
-
-  // Add to location history
-  const locationEntry = {
-    coordinates,
+deliveryTrackingSchema.methods.addPickupAttempt = async function(attemptData) {
+  const {
+    successful,
+    notes,
+    contactAttempts = []
+  } = attemptData;
+  
+  this.pickupAttempts.push({
     timestamp: new Date(),
-    accuracy,
-    speed,
-    heading
-  };
-
-  this.locationHistory.push(locationEntry);
-
-  // Add location update event
-  this.events.push({
-    type: 'location_updated',
-    timestamp: new Date(),
-    location: {
-      coordinates,
-      address
-    },
-    metadata: { accuracy, speed, heading }
+    successful,
+    notes,
+    contactAttempts
   });
-
-  // Keep location history manageable (last 1000 points)
-  if (this.locationHistory.length > 1000) {
-    this.locationHistory = this.locationHistory.slice(-1000);
+  
+  if (successful) {
+    await this.addEvent('package_picked_up', { notes });
+  } else {
+    await this.addEvent('pickup_attempted', { notes });
   }
-
-  return await this.save();
+  
+  return this;
 };
 
 /**
- * Report an issue during delivery
- * @param {Object} issueData - Issue information
+ * Add delivery attempt
+ * @param {Object} attemptData - Attempt data
+ * @returns {Promise<DeliveryTracking>}
+ */
+deliveryTrackingSchema.methods.addDeliveryAttempt = async function(attemptData) {
+  const {
+    successful,
+    notes,
+    deliveryMethod,
+    signatureRequired = false,
+    signatureObtained = false,
+    photoTaken = false,
+    contactAttempts = []
+  } = attemptData;
+  
+  this.deliveryAttempts.push({
+    timestamp: new Date(),
+    successful,
+    notes,
+    deliveryMethod,
+    signatureRequired,
+    signatureObtained,
+    photoTaken,
+    contactAttempts
+  });
+  
+  if (successful) {
+    await this.addEvent('package_delivered', { 
+      notes,
+      metadata: { deliveryMethod, signatureObtained, photoTaken }
+    });
+  } else {
+    await this.addEvent('delivery_attempted', { notes });
+  }
+  
+  return this;
+};
+
+/**
+ * Report an issue
+ * @param {Object} issueData - Issue data
  * @returns {Promise<DeliveryTracking>}
  */
 deliveryTrackingSchema.methods.reportIssue = async function(issueData) {
@@ -442,314 +492,148 @@ deliveryTrackingSchema.methods.reportIssue = async function(issueData) {
     type,
     description,
     reportedBy,
-    location,
-    severity = 'medium',
-    photos = []
+    impactOnDelivery = 'minor_delay'
   } = issueData;
-
-  const issue = {
+  
+  this.issues.push({
     type,
     description,
     reportedAt: new Date(),
     reportedBy,
-    location,
-    severity,
-    photos
-  };
-
-  this.issues.push(issue);
-
-  // Add event to log
-  this.events.push({
-    type: 'issue_reported',
-    timestamp: new Date(),
-    description: `Issue reported: ${type}`,
-    location,
-    reportedBy,
-    metadata: { issueType: type, severity }
+    impactOnDelivery
   });
-
-  return await this.save();
+  
+  await this.addEvent('issue_reported', {
+    notes: description,
+    metadata: { issueType: type, impact: impactOnDelivery },
+    reportedBy
+  });
+  
+  return this;
 };
 
 /**
- * Confirm delivery with details
- * @param {Object} confirmationData - Delivery confirmation details
+ * Update estimated arrival time
+ * @param {Date} newETA - New estimated arrival time
  * @returns {Promise<DeliveryTracking>}
  */
-deliveryTrackingSchema.methods.confirmDelivery = async function(confirmationData) {
-  const {
-    confirmationType,
-    confirmationData: confData,
-    deliveryLocation,
-    notes
-  } = confirmationData;
-
-  this.deliveryConfirmation = {
-    confirmedAt: new Date(),
-    confirmationType,
-    confirmationData: confData,
-    deliveryLocation,
-    notes
-  };
-
-  // Update status to delivered if not already
-  if (this.currentStatus !== 'delivered' && this.currentStatus !== 'completed') {
-    // Only update to delivered if we're in a valid state (in_transit)
-    if (this.currentStatus === 'in_transit') {
-      await this.updateStatus('delivered', {
-        description: 'Package delivered and confirmed',
-        metadata: { confirmationType }
-      });
-    }
-  }
-
-  return await this.save();
+deliveryTrackingSchema.methods.updateETA = async function(newETA) {
+  this.estimatedArrivalTime = newETA;
+  this.lastLocationUpdate = new Date();
+  
+  await this.save();
+  return this;
 };
 
 /**
- * Calculate estimated delivery time
- * @param {Object} factors - Factors affecting delivery time
- * @returns {Promise<DeliveryTracking>}
+ * Calculate performance metrics
+ * @returns {Object}
  */
-deliveryTrackingSchema.methods.updateEstimatedDelivery = async function(factors = {}) {
-  const { distance, traffic = 'moderate', weather = 'clear', timeOfDay = 'normal' } = factors;
-
-  // Base calculation: distance and average speed
-  const baseSpeed = 30; // km/h base speed
-  let adjustedSpeed = baseSpeed;
-
-  // Adjust for traffic
-  switch (traffic) {
-    case 'light':
-      adjustedSpeed *= 1.2;
-      break;
-    case 'heavy':
-      adjustedSpeed *= 0.7;
-      break;
-    case 'moderate':
-    default:
-      adjustedSpeed *= 1.0;
-      break;
+deliveryTrackingSchema.methods.calculateMetrics = function() {
+  const metrics = {};
+  
+  if (this.completedAt) {
+    metrics.totalDuration = Math.round((this.completedAt - this.acceptedAt) / (1000 * 60));
   }
-
-  // Adjust for weather
-  if (weather === 'rain' || weather === 'snow') {
-    adjustedSpeed *= 0.8;
+  
+  if (this.actualPickupTime && this.acceptedAt) {
+    metrics.timeToPickup = Math.round((this.actualPickupTime - this.acceptedAt) / (1000 * 60));
   }
-
-  // Adjust for time of day
-  if (timeOfDay === 'rush_hour') {
-    adjustedSpeed *= 0.6;
+  
+  if (this.actualDeliveryTime && this.actualPickupTime) {
+    metrics.transitDuration = Math.round((this.actualDeliveryTime - this.actualPickupTime) / (1000 * 60));
   }
-
-  const estimatedDuration = Math.round((distance / adjustedSpeed) * 60); // minutes
-  const estimatedTime = new Date(Date.now() + estimatedDuration * 60 * 1000);
-
-  this.estimatedDelivery = {
-    estimatedTime,
-    estimatedDuration,
-    distance,
-    calculatedAt: new Date(),
-    factors: { traffic, weather, timeOfDay }
-  };
-
-  return await this.save();
+  
+  if (this.actualDistance && metrics.transitDuration) {
+    metrics.averageSpeed = (this.actualDistance / 1000) / (metrics.transitDuration / 60); // km/h
+  }
+  
+  // On-time performance
+  if (this.estimatedDeliveryTime && this.actualDeliveryTime) {
+    const delay = this.actualDeliveryTime - this.estimatedDeliveryTime;
+    metrics.onTimePerformance = delay <= 0;
+    metrics.delayMinutes = Math.max(0, Math.round(delay / (1000 * 60)));
+  }
+  
+  return metrics;
 };
 
 /**
- * Get delivery summary for API responses
- * @returns {Object} Delivery summary
+ * Get formatted tracking data for API response
+ * @returns {Object}
  */
-deliveryTrackingSchema.methods.getSummary = function() {
+deliveryTrackingSchema.methods.getTrackingData = function() {
   return {
     id: this._id,
-    offerId: this.offer,
+    offer: this.offer,
+    rider: this.rider,
+    business: this.business,
     currentStatus: this.currentStatus,
-    currentPhase: this.currentPhase,
     progressPercentage: this.progressPercentage,
     estimatedTimeRemaining: this.estimatedTimeRemaining,
-    currentLocation: this.currentLocation,
-    statusTimestamps: this.statusTimestamps,
-    totalDeliveryTime: this.totalDeliveryTime,
-    metrics: this.metrics,
-    issueCount: this.issues.length,
-    hasActiveIssues: this.issues.some(issue => !issue.resolved),
-    lastUpdated: this.updatedAt
+    estimatedArrivalTime: this.estimatedArrivalTime,
+    acceptedAt: this.acceptedAt,
+    actualPickupTime: this.actualPickupTime,
+    actualDeliveryTime: this.actualDeliveryTime,
+    completedAt: this.completedAt,
+    isActive: this.isActive,
+    events: this.events.slice(-10), // Last 10 events
+    issues: this.issues.filter(issue => !issue.resolved),
+    metrics: this.calculateMetrics(),
+    lastLocationUpdate: this.lastLocationUpdate
   };
-};
-
-/**
- * Get detailed tracking information
- * @returns {Object} Detailed tracking data
- */
-deliveryTrackingSchema.methods.getDetailedTracking = function() {
-  return {
-    ...this.getSummary(),
-    events: this.events.slice(-20), // Last 20 events
-    locationHistory: this.locationHistory.slice(-50), // Last 50 locations
-    estimatedDelivery: this.estimatedDelivery,
-    deliveryConfirmation: this.deliveryConfirmation,
-    issues: this.issues.filter(issue => !issue.resolved || 
-      (new Date() - issue.resolvedAt) < 24 * 60 * 60 * 1000) // Recent resolved issues
-  };
-};
-
-// Private helper methods
-
-/**
- * Validate status transition
- * @param {String} currentStatus - Current status
- * @param {String} newStatus - New status
- * @returns {Boolean} Is valid transition
- * @private
- */
-deliveryTrackingSchema.methods._isValidStatusTransition = function(currentStatus, newStatus) {
-  const validTransitions = {
-    accepted: ['picked_up', 'cancelled', 'failed'],
-    picked_up: ['in_transit', 'cancelled', 'failed'],
-    in_transit: ['delivered', 'cancelled', 'failed'],
-    delivered: ['completed', 'failed'],
-    completed: [], // Terminal state
-    cancelled: [], // Terminal state
-    failed: [] // Terminal state
-  };
-
-  return validTransitions[currentStatus]?.includes(newStatus) || false;
-};
-
-/**
- * Get event type for status change
- * @param {String} status - Delivery status
- * @returns {String} Event type
- * @private
- */
-deliveryTrackingSchema.methods._getEventTypeForStatus = function(status) {
-  const eventMap = {
-    accepted: 'offer_accepted',
-    picked_up: 'package_picked_up',
-    in_transit: 'in_transit_started',
-    delivered: 'package_delivered',
-    completed: 'delivery_completed',
-    cancelled: 'delivery_cancelled',
-    failed: 'delivery_failed'
-  };
-
-  return eventMap[status] || 'status_updated';
-};
-
-/**
- * Calculate distance between two coordinates using Haversine formula
- * @param {Array} coord1 - [longitude, latitude]
- * @param {Array} coord2 - [longitude, latitude]
- * @returns {Number} Distance in kilometers
- * @private
- */
-deliveryTrackingSchema.methods._calculateDistance = function(coord1, coord2) {
-  const R = 6371; // Earth's radius in kilometers
-  const dLat = this._toRadians(coord2[1] - coord1[1]);
-  const dLon = this._toRadians(coord2[0] - coord1[0]);
-  
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(this._toRadians(coord1[1])) * Math.cos(this._toRadians(coord2[1])) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
-
-/**
- * Convert degrees to radians
- * @param {Number} degrees - Degrees
- * @returns {Number} Radians
- * @private
- */
-deliveryTrackingSchema.methods._toRadians = function(degrees) {
-  return degrees * (Math.PI / 180);
 };
 
 // Static Methods
 
 /**
- * Create new delivery tracking for an offer
- * @param {String} offerId - Offer ID
- * @param {String} riderId - Rider ID
- * @param {String} businessId - Business ID
- * @param {Object} options - Additional options
+ * Create delivery tracking for an accepted offer
+ * @param {Object} offer - Offer object
  * @returns {Promise<DeliveryTracking>}
  */
-deliveryTrackingSchema.statics.createForOffer = async function(offerId, riderId, businessId, options = {}) {
-  const { initialLocation, metadata = {} } = options;
-
-  const tracking = new this({
-    offer: offerId,
-    rider: riderId,
-    business: businessId,
-    currentStatus: 'accepted',
-    metadata
-  });
-
-  // Add initial event
-  tracking.events.push({
-    type: 'offer_accepted',
-    timestamp: new Date(),
-    description: 'Delivery tracking started - offer accepted by rider',
-    reportedBy: riderId
-  });
-
-  // Set initial location if provided
-  if (initialLocation) {
-    tracking.currentLocation = {
-      type: 'Point',
-      coordinates: initialLocation.coordinates,
-      address: initialLocation.address,
-      lastUpdated: new Date()
-    };
-
-    tracking.locationHistory.push({
-      coordinates: initialLocation.coordinates,
-      timestamp: new Date()
-    });
+deliveryTrackingSchema.statics.createForOffer = async function(offer) {
+  if (!offer.acceptedBy) {
+    throw new Error('Offer must be accepted by a rider');
   }
-
-  return await tracking.save();
+  
+  // Check if tracking already exists
+  const existingTracking = await this.findOne({ offer: offer._id });
+  if (existingTracking) {
+    return existingTracking;
+  }
+  
+  const tracking = new this({
+    offer: offer._id,
+    rider: offer.acceptedBy,
+    business: offer.business,
+    currentStatus: 'accepted',
+    acceptedAt: offer.acceptedAt || new Date(),
+    estimatedDistance: offer.estimatedDistance,
+    estimatedPickupTime: offer.pickup.availableFrom,
+    estimatedDeliveryTime: offer.delivery.deliverBy
+  });
+  
+  // Add initial event
+  await tracking.addEvent('delivery_accepted', {
+    notes: 'Delivery accepted by rider'
+  });
+  
+  return tracking;
 };
 
 /**
  * Get active deliveries for a rider
  * @param {String} riderId - Rider ID
- * @returns {Promise<Array>} Active deliveries
+ * @returns {Promise<Array>}
  */
-deliveryTrackingSchema.statics.getActiveDeliveries = function(riderId) {
+deliveryTrackingSchema.statics.getActiveDeliveriesForRider = function(riderId) {
   return this.find({
     rider: riderId,
-    currentStatus: { $in: ['accepted', 'picked_up', 'in_transit', 'delivered'] }
+    isActive: true
   })
-  .populate('offer', 'title pickup delivery payment')
-  .populate('business', 'businessName email profile.phone')
-  .sort({ updatedAt: -1 });
-};
-
-/**
- * Get deliveries being tracked by a business
- * @param {String} businessId - Business ID
- * @param {Object} options - Query options
- * @returns {Promise<Array>} Business deliveries
- */
-deliveryTrackingSchema.statics.getBusinessDeliveries = function(businessId, options = {}) {
-  const { status, limit = 50, skip = 0 } = options;
-  
-  const query = { business: businessId };
-  if (status) {
-    query.currentStatus = status;
-  }
-
-  return this.find(query)
     .populate('offer', 'title pickup delivery payment')
-    .populate('rider', 'name email profile.phone')
-    .sort({ updatedAt: -1 })
-    .limit(limit)
-    .skip(skip);
+    .populate('business', 'name profile.businessName profile.businessPhone')
+    .sort({ acceptedAt: -1 });
 };
 
 /**
@@ -759,79 +643,115 @@ deliveryTrackingSchema.statics.getBusinessDeliveries = function(businessId, opti
  */
 deliveryTrackingSchema.statics.getByOfferId = function(offerId) {
   return this.findOne({ offer: offerId })
-    .populate('offer', 'title pickup delivery payment')
-    .populate('rider', 'name email profile.phone')
-    .populate('business', 'businessName email profile.phone');
+    .populate('offer', 'title pickup delivery payment status')
+    .populate('rider', 'name profile.phone profile.vehicleType')
+    .populate('business', 'name profile.businessName profile.businessPhone');
+};
+
+/**
+ * Get deliveries by status
+ * @param {String} status - Delivery status
+ * @param {Object} options - Query options
+ * @returns {Promise<Array>}
+ */
+deliveryTrackingSchema.statics.getByStatus = function(status, options = {}) {
+  const { limit = 50, skip = 0 } = options;
+  
+  return this.find({ currentStatus: status, isActive: true })
+    .populate('offer', 'title pickup delivery')
+    .populate('rider', 'name profile.phone')
+    .populate('business', 'name profile.businessName')
+    .sort({ acceptedAt: -1 })
+    .limit(limit)
+    .skip(skip);
 };
 
 /**
  * Get delivery statistics
  * @param {Object} filters - Filter options
- * @returns {Promise<Object>} Delivery statistics
+ * @returns {Promise<Object>}
  */
 deliveryTrackingSchema.statics.getDeliveryStats = async function(filters = {}) {
-  const { riderId, businessId, startDate, endDate } = filters;
-
-  const matchQuery = {};
-  if (riderId) matchQuery.rider = riderId;
-  if (businessId) matchQuery.business = businessId;
+  const { startDate, endDate, riderId, businessId } = filters;
+  
+  const match = { isActive: false }; // Only completed deliveries
+  
   if (startDate || endDate) {
-    matchQuery.createdAt = {};
-    if (startDate) matchQuery.createdAt.$gte = new Date(startDate);
-    if (endDate) matchQuery.createdAt.$lte = new Date(endDate);
+    match.completedAt = {};
+    if (startDate) match.completedAt.$gte = new Date(startDate);
+    if (endDate) match.completedAt.$lte = new Date(endDate);
   }
-
+  
+  if (riderId) match.rider = new mongoose.Types.ObjectId(riderId);
+  if (businessId) match.business = new mongoose.Types.ObjectId(businessId);
+  
   const stats = await this.aggregate([
-    { $match: matchQuery },
+    { $match: match },
     {
       $group: {
-        _id: '$currentStatus',
-        count: { $sum: 1 },
-        avgDuration: { $avg: '$metrics.totalDuration' },
-        avgDistance: { $avg: '$metrics.totalDistance' }
+        _id: null,
+        totalDeliveries: { $sum: 1 },
+        completedDeliveries: {
+          $sum: { $cond: [{ $eq: ['$currentStatus', 'completed'] }, 1, 0] }
+        },
+        cancelledDeliveries: {
+          $sum: { $cond: [{ $eq: ['$currentStatus', 'cancelled'] }, 1, 0] }
+        },
+        averageDuration: {
+          $avg: {
+            $divide: [
+              { $subtract: ['$completedAt', '$acceptedAt'] },
+              1000 * 60 // Convert to minutes
+            ]
+          }
+        },
+        totalIssues: { $sum: { $size: '$issues' } },
+        onTimeDeliveries: {
+          $sum: {
+            $cond: [
+              { $lte: ['$actualDeliveryTime', '$estimatedDeliveryTime'] },
+              1,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        totalDeliveries: 1,
+        completedDeliveries: 1,
+        cancelledDeliveries: 1,
+        averageDuration: { $round: ['$averageDuration', 2] },
+        totalIssues: 1,
+        onTimeDeliveries: 1,
+        completionRate: {
+          $round: [
+            { $multiply: [{ $divide: ['$completedDeliveries', '$totalDeliveries'] }, 100] },
+            2
+          ]
+        },
+        onTimeRate: {
+          $round: [
+            { $multiply: [{ $divide: ['$onTimeDeliveries', '$completedDeliveries'] }, 100] },
+            2
+          ]
+        }
       }
     }
   ]);
-
-  const result = {
+  
+  return stats.length > 0 ? stats[0] : {
     totalDeliveries: 0,
-    statusBreakdown: {},
+    completedDeliveries: 0,
+    cancelledDeliveries: 0,
     averageDuration: 0,
-    averageDistance: 0,
-    completionRate: 0
+    totalIssues: 0,
+    onTimeDeliveries: 0,
+    completionRate: 0,
+    onTimeRate: 0
   };
-
-  let totalCompleted = 0;
-  let totalDuration = 0;
-  let totalDistance = 0;
-  let durationCount = 0;
-  let distanceCount = 0;
-
-  stats.forEach(stat => {
-    result.totalDeliveries += stat.count;
-    result.statusBreakdown[stat._id] = stat.count;
-
-    if (stat._id === 'completed') {
-      totalCompleted = stat.count;
-    }
-
-    if (stat.avgDuration) {
-      totalDuration += stat.avgDuration * stat.count;
-      durationCount += stat.count;
-    }
-
-    if (stat.avgDistance) {
-      totalDistance += stat.avgDistance * stat.count;
-      distanceCount += stat.count;
-    }
-  });
-
-  result.completionRate = result.totalDeliveries > 0 ? 
-    Math.round((totalCompleted / result.totalDeliveries) * 10000) / 100 : 0;
-  result.averageDuration = durationCount > 0 ? totalDuration / durationCount : 0;
-  result.averageDistance = distanceCount > 0 ? totalDistance / distanceCount : 0;
-
-  return result;
 };
 
 module.exports = mongoose.model('DeliveryTracking', deliveryTrackingSchema);

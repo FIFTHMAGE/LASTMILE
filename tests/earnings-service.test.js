@@ -1,506 +1,638 @@
 const mongoose = require('mongoose');
 const EarningsService = require('../services/EarningsService');
+const Earnings = require('../models/Earnings');
 const Payment = require('../models/Payment');
 const Offer = require('../models/Offer');
 const User = require('../models/User');
 
-// Mock dependencies
-jest.mock('../models/Payment');
-jest.mock('../models/Offer');
-jest.mock('../models/User');
+// Mock data
+const mockRiderId = new mongoose.Types.ObjectId();
+const mockBusinessId = new mongoose.Types.ObjectId();
+const mockOfferId = new mongoose.Types.ObjectId();
 
 describe('EarningsService', () => {
-  let earningsService;
-  let riderId;
-
-  beforeEach(() => {
-    // Reset mocks
-    jest.clearAllMocks();
-    
-    riderId = new mongoose.Types.ObjectId();
-    earningsService = new EarningsService();
+  beforeAll(async () => {
+    // Connect to test database
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lastmile_test', {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      });
+    }
   });
 
-  describe('Constructor', () => {
-    test('should initialize with default options', () => {
-      const service = new EarningsService();
-      expect(service.options.defaultCurrency).toBe('USD');
-    });
-
-    test('should accept custom options', () => {
-      const service = new EarningsService({
-        defaultCurrency: 'EUR'
-      });
-      expect(service.options.defaultCurrency).toBe('EUR');
-    });
+  afterAll(async () => {
+    // Clean up and disconnect
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.dropDatabase();
+      await mongoose.connection.close();
+    }
   });
 
-  describe('getRiderEarningsSummary', () => {
-    beforeEach(() => {
-      // Mock Payment.getPaymentStats
-      Payment.getPaymentStats = jest.fn().mockResolvedValue({
-        completedAmount: 500.00,
-        completedPayments: 20,
-        averageAmount: 25.00
-      });
-
-      // Mock Payment.find for pending earnings
-      Payment.find = jest.fn().mockResolvedValue([
-        { riderEarnings: 15.00 },
-        { riderEarnings: 20.00 }
-      ]);
-
-      // Mock Payment.aggregate for time-based earnings
-      Payment.aggregate = jest.fn().mockResolvedValue([{
-        _id: null,
-        totalEarnings: 100.00,
-        deliveryCount: 4,
-        averageEarnings: 25.00
-      }]);
-
-      // Mock Offer.countDocuments
-      Offer.countDocuments = jest.fn()
-        .mockResolvedValueOnce(25) // total offers
-        .mockResolvedValueOnce(20); // completed offers
-    });
-
-    test('should return comprehensive earnings summary', async () => {
-      const result = await earningsService.getRiderEarningsSummary(riderId);
-
-      expect(result).toHaveProperty('summary');
-      expect(result).toHaveProperty('timeBasedEarnings');
-      expect(result).toHaveProperty('performanceMetrics');
-      expect(result).toHaveProperty('recentActivity');
-      expect(result).toHaveProperty('trends');
-
-      expect(result.summary.totalEarnings).toBe(500.00);
-      expect(result.summary.totalDeliveries).toBe(20);
-      expect(result.summary.averageEarningsPerDelivery).toBe(25.00);
-      expect(result.summary.currency).toBe('USD');
-    });
-
-    test('should handle custom currency', async () => {
-      const result = await earningsService.getRiderEarningsSummary(riderId, { currency: 'EUR' });
-
-      expect(result.summary.currency).toBe('EUR');
-    });
-
-    test('should calculate pending earnings', async () => {
-      const result = await earningsService.getRiderEarningsSummary(riderId);
-
-      expect(Payment.find).toHaveBeenCalledWith({
-        rider: riderId,
-        status: { $in: ['pending', 'processing'] }
-      });
-      expect(result.summary.pendingEarnings).toBe(35.00); // 15 + 20
-    });
+  beforeEach(async () => {
+    // Clear collections before each test
+    await Earnings.deleteMany({});
+    await Payment.deleteMany({});
+    await Offer.deleteMany({});
+    await User.deleteMany({});
   });
 
-  describe('getRiderEarningsHistory', () => {
-    beforeEach(() => {
-      const mockPayments = [
-        {
-          _id: 'payment1',
-          createdAt: new Date('2024-01-15'),
-          riderEarnings: 25.00,
-          totalAmount: 30.00,
-          platformFee: 5.00,
-          currency: 'USD',
-          status: 'completed',
-          transactionId: 'txn_123',
-          processedAt: new Date('2024-01-15'),
-          offer: {
-            _id: 'offer1',
-            title: 'Delivery 1',
-            pickup: { address: 'Pickup Address' },
-            delivery: { address: 'Delivery Address' },
-            business: { businessName: 'Test Business', email: 'test@business.com' }
-          }
+  describe('generateEarningsFromOffer', () => {
+    let mockOffer, mockRider, mockBusiness;
+
+    beforeEach(async () => {
+      // Create test users
+      mockRider = await User.create({
+        _id: mockRiderId,
+        name: 'Test Rider',
+        email: 'rider@test.com',
+        password: 'password',
+        role: 'rider',
+        profile: {
+          phone: '1234567890',
+          vehicleType: 'bike',
+          completedDeliveries: 5
         }
+      });
+
+      mockBusiness = await User.create({
+        _id: mockBusinessId,
+        name: 'Test Business',
+        email: 'business@test.com',
+        password: 'password',
+        role: 'business',
+        profile: {
+          businessName: 'Test Business Inc',
+          businessAddress: {
+            street: '123 Business St',
+            city: 'Business City',
+            state: 'BC',
+            zipCode: '12345'
+          },
+          businessPhone: '0987654321'
+        }
+      });
+
+      // Create test offer
+      mockOffer = await Offer.create({
+        _id: mockOfferId,
+        business: mockBusinessId,
+        title: 'Test Delivery',
+        description: 'Test delivery description',
+        pickup: {
+          address: '123 Pickup St',
+          coordinates: [-74.006, 40.7128],
+          contactName: 'Pickup Contact',
+          contactPhone: '1111111111'
+        },
+        delivery: {
+          address: '456 Delivery Ave',
+          coordinates: [-74.0059, 40.7127],
+          contactName: 'Delivery Contact',
+          contactPhone: '2222222222'
+        },
+        payment: {
+          amount: 25.50,
+          currency: 'USD',
+          paymentMethod: 'card'
+        },
+        status: 'completed',
+        acceptedBy: mockRiderId,
+        acceptedAt: new Date('2023-01-15T10:00:00Z'),
+        completedAt: new Date('2023-01-15T10:45:00Z'),
+        estimatedDistance: 5000,
+        estimatedDuration: 30,
+        actualDistance: 4800,
+        actualDuration: 28
+      });
+    });
+
+    test('should generate earnings successfully for completed offer', async () => {
+      const result = await EarningsService.generateEarningsFromOffer(mockOfferId.toString());
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Earnings generated successfully');
+      expect(result.earnings).toBeDefined();
+      expect(result.earnings.grossAmount).toBe(25.50);
+      expect(result.earnings.netAmount).toBeCloseTo(24.23, 2); // After 5% platform fee
+      expect(result.payment).toBeDefined();
+
+      // Verify rider's completed deliveries count was updated
+      const updatedRider = await User.findById(mockRiderId);
+      expect(updatedRider.profile.completedDeliveries).toBe(6);
+    });
+
+    test('should return existing earnings if already generated', async () => {
+      // Generate earnings first time
+      await EarningsService.generateEarningsFromOffer(mockOfferId.toString());
+
+      // Try to generate again
+      const result = await EarningsService.generateEarningsFromOffer(mockOfferId.toString());
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Earnings already generated for this offer');
+      expect(result.earnings).toBeDefined();
+
+      // Verify only one earnings record exists
+      const earningsCount = await Earnings.countDocuments({ offer: mockOfferId });
+      expect(earningsCount).toBe(1);
+    });
+
+    test('should throw error for non-existent offer', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId();
+      
+      await expect(EarningsService.generateEarningsFromOffer(nonExistentId.toString()))
+        .rejects.toThrow('Offer not found');
+    });
+
+    test('should throw error for non-completed offer', async () => {
+      mockOffer.status = 'in_progress';
+      await mockOffer.save();
+
+      await expect(EarningsService.generateEarningsFromOffer(mockOfferId.toString()))
+        .rejects.toThrow('Only completed offers can generate earnings');
+    });
+
+    test('should throw error for offer without assigned rider', async () => {
+      mockOffer.acceptedBy = null;
+      await mockOffer.save();
+
+      await expect(EarningsService.generateEarningsFromOffer(mockOfferId.toString()))
+        .rejects.toThrow('Offer must be accepted by a rider');
+    });
+
+    test('should create payment record if it does not exist', async () => {
+      const result = await EarningsService.generateEarningsFromOffer(mockOfferId.toString());
+
+      expect(result.success).toBe(true);
+      
+      // Verify payment was created
+      const payment = await Payment.findOne({ offer: mockOfferId });
+      expect(payment).toBeDefined();
+      expect(payment.totalAmount).toBe(25.50);
+      expect(payment.platformFee).toBeCloseTo(1.28, 2); // 5% of 25.50 with minimum 0.50
+    });
+
+    test('should use existing payment record if available', async () => {
+      // Create payment record first
+      const existingPayment = await Payment.create({
+        offer: mockOfferId,
+        business: mockBusinessId,
+        rider: mockRiderId,
+        totalAmount: 25.50,
+        platformFee: 2.00,
+        riderEarnings: 23.50,
+        currency: 'USD',
+        paymentMethod: 'credit_card',
+        status: 'completed'
+      });
+
+      const result = await EarningsService.generateEarningsFromOffer(mockOfferId.toString());
+
+      expect(result.success).toBe(true);
+      expect(result.earnings.platformFee).toBe(2.00); // Uses existing payment's fee
+      expect(result.earnings.netAmount).toBe(23.50);
+
+      // Verify no duplicate payment was created
+      const paymentCount = await Payment.countDocuments({ offer: mockOfferId });
+      expect(paymentCount).toBe(1);
+    });
+  });
+
+  describe('getRiderEarningsDashboard', () => {
+    let mockRider;
+
+    beforeEach(async () => {
+      mockRider = await User.create({
+        _id: mockRiderId,
+        name: 'Test Rider',
+        email: 'rider@test.com',
+        password: 'password',
+        role: 'rider',
+        profile: {
+          phone: '1234567890',
+          vehicleType: 'bike',
+          completedDeliveries: 10,
+          rating: 4.8
+        }
+      });
+
+      // Create some earnings records
+      const earnings1 = new Earnings({
+        rider: mockRiderId,
+        offer: new mongoose.Types.ObjectId(),
+        payment: new mongoose.Types.ObjectId(),
+        grossAmount: 25.00,
+        platformFee: 2.50,
+        netAmount: 22.50,
+        paymentStatus: 'paid',
+        paymentMethod: 'card',
+        distance: 5000,
+        duration: 30,
+        earnedAt: new Date()
+      });
+      await earnings1.save();
+
+      const earnings2 = new Earnings({
+        rider: mockRiderId,
+        offer: new mongoose.Types.ObjectId(),
+        payment: new mongoose.Types.ObjectId(),
+        grossAmount: 30.00,
+        platformFee: 3.00,
+        netAmount: 27.00,
+        paymentStatus: 'pending',
+        paymentMethod: 'digital',
+        distance: 6000,
+        duration: 35,
+        earnedAt: new Date()
+      });
+      await earnings2.save();
+    });
+
+    test('should return comprehensive dashboard data', async () => {
+      const dashboard = await EarningsService.getRiderEarningsDashboard(mockRiderId.toString());
+
+      expect(dashboard.success).toBe(true);
+      expect(dashboard.period).toBe('month');
+      expect(dashboard.summary).toBeDefined();
+      expect(dashboard.allTimeStats).toBeDefined();
+      expect(dashboard.recentEarnings).toBeDefined();
+      expect(dashboard.pendingEarnings).toBeDefined();
+      expect(dashboard.performanceMetrics).toBeDefined();
+      
+      expect(dashboard.summary.totalEarnings).toBe(55.00);
+      expect(dashboard.summary.totalNet).toBe(49.50);
+      expect(dashboard.summary.totalDeliveries).toBe(2);
+      expect(dashboard.pendingEarnings).toHaveLength(1);
+      expect(dashboard.pendingEarnings[0].finalAmount).toBe(27.00);
+    });
+
+    test('should calculate performance metrics correctly', async () => {
+      const dashboard = await EarningsService.getRiderEarningsDashboard(mockRiderId.toString());
+
+      expect(dashboard.performanceMetrics).toBeDefined();
+      expect(dashboard.performanceMetrics.efficiency).toBeDefined();
+      expect(dashboard.performanceMetrics.productivity).toBeDefined();
+      
+      const efficiency = dashboard.performanceMetrics.efficiency;
+      expect(efficiency.earningsPerDelivery).toBeCloseTo(24.75, 2); // 49.50 / 2
+      expect(efficiency.earningsPerHour).toBeCloseTo(45.69, 2); // (49.50 / 65) * 60
+      expect(efficiency.earningsPerKm).toBeCloseTo(4.5, 2); // 49.50 / (11000/1000)
+    });
+
+    test('should handle different time periods', async () => {
+      const weekDashboard = await EarningsService.getRiderEarningsDashboard(mockRiderId.toString(), { period: 'week' });
+      const yearDashboard = await EarningsService.getRiderEarningsDashboard(mockRiderId.toString(), { period: 'year' });
+
+      expect(weekDashboard.period).toBe('week');
+      expect(yearDashboard.period).toBe('year');
+      expect(weekDashboard.summary).toBeDefined();
+      expect(yearDashboard.summary).toBeDefined();
+    });
+  });
+
+  describe('getEarningsHistory', () => {
+    beforeEach(async () => {
+      // Create multiple earnings records with different dates
+      const dates = [
+        new Date('2023-01-01'),
+        new Date('2023-01-02'),
+        new Date('2023-01-03'),
+        new Date('2023-01-04'),
+        new Date('2023-01-05')
       ];
 
-      Payment.find = jest.fn().mockReturnValue({
-        populate: jest.fn().mockReturnValue({
-          sort: jest.fn().mockReturnValue({
-            limit: jest.fn().mockReturnValue({
-              skip: jest.fn().mockResolvedValue(mockPayments)
-            })
-          })
-        })
-      });
-
-      Payment.countDocuments = jest.fn().mockResolvedValue(1);
+      for (let i = 0; i < dates.length; i++) {
+        const earnings = new Earnings({
+          rider: mockRiderId,
+          offer: new mongoose.Types.ObjectId(),
+          payment: new mongoose.Types.ObjectId(),
+          grossAmount: 20 + i * 5,
+          platformFee: 2 + i * 0.5,
+          netAmount: 18 + i * 4.5,
+          paymentStatus: i % 2 === 0 ? 'paid' : 'pending',
+          paymentMethod: 'card',
+          distance: 4000 + i * 1000,
+          duration: 25 + i * 5,
+          earnedAt: dates[i]
+        });
+        await earnings.save();
+      }
     });
 
     test('should return paginated earnings history', async () => {
-      const filters = {
-        startDate: '2024-01-01',
-        endDate: '2024-01-31',
-        status: 'completed',
+      const history = await EarningsService.getEarningsHistory(mockRiderId.toString(), {
         page: 1,
-        limit: 20
-      };
-
-      const result = await earningsService.getRiderEarningsHistory(riderId, filters);
-
-      expect(result).toHaveProperty('earningsHistory');
-      expect(result).toHaveProperty('pagination');
-      expect(result).toHaveProperty('summary');
-
-      expect(result.earningsHistory).toHaveLength(1);
-      expect(result.earningsHistory[0].earnings).toBe(25.00);
-      expect(result.pagination.total).toBe(1);
-      expect(result.summary.totalEarnings).toBe(25.00);
-    });
-
-    test('should handle empty results', async () => {
-      Payment.find = jest.fn().mockReturnValue({
-        populate: jest.fn().mockReturnValue({
-          sort: jest.fn().mockReturnValue({
-            limit: jest.fn().mockReturnValue({
-              skip: jest.fn().mockResolvedValue([])
-            })
-          })
-        })
+        limit: 3
       });
 
-      Payment.countDocuments = jest.fn().mockResolvedValue(0);
+      expect(history.success).toBe(true);
+      expect(history.earnings).toHaveLength(3);
+      expect(history.pagination.total).toBe(5);
+      expect(history.pagination.page).toBe(1);
+      expect(history.pagination.limit).toBe(3);
+      expect(history.pagination.pages).toBe(2);
+    });
 
-      const result = await earningsService.getRiderEarningsHistory(riderId);
+    test('should filter by payment status', async () => {
+      const paidHistory = await EarningsService.getEarningsHistory(mockRiderId.toString(), {
+        paymentStatus: 'paid'
+      });
 
-      expect(result.earningsHistory).toHaveLength(0);
-      expect(result.summary.totalEarnings).toBe(0);
-      expect(result.summary.averageEarnings).toBe(0);
+      expect(paidHistory.success).toBe(true);
+      expect(paidHistory.earnings).toHaveLength(3); // 3 paid earnings
+      expect(paidHistory.earnings.every(e => e.paymentStatus === 'paid')).toBe(true);
+    });
+
+    test('should filter by date range', async () => {
+      const history = await EarningsService.getEarningsHistory(mockRiderId.toString(), {
+        startDate: '2023-01-02',
+        endDate: '2023-01-04'
+      });
+
+      expect(history.success).toBe(true);
+      expect(history.earnings).toHaveLength(3); // 3 earnings in date range
+    });
+
+    test('should sort earnings correctly', async () => {
+      const ascHistory = await EarningsService.getEarningsHistory(mockRiderId.toString(), {
+        sortBy: 'grossAmount',
+        sortOrder: 'asc'
+      });
+
+      expect(ascHistory.success).toBe(true);
+      expect(ascHistory.earnings[0].grossAmount).toBe(20); // Lowest amount first
+      expect(ascHistory.earnings[4].grossAmount).toBe(40); // Highest amount last
+    });
+
+    test('should include formatted earnings data', async () => {
+      const history = await EarningsService.getEarningsHistory(mockRiderId.toString());
+
+      expect(history.success).toBe(true);
+      expect(history.earnings[0]).toHaveProperty('id');
+      expect(history.earnings[0]).toHaveProperty('grossAmount');
+      expect(history.earnings[0]).toHaveProperty('netAmount');
+      expect(history.earnings[0]).toHaveProperty('finalAmount');
+      expect(history.earnings[0]).toHaveProperty('paymentStatus');
+      expect(history.earnings[0]).toHaveProperty('earnedAt');
     });
   });
 
-  describe('getEarningsBreakdown', () => {
-    beforeEach(() => {
-      Payment.aggregate = jest.fn().mockResolvedValue([
-        {
-          _id: { year: 2024, month: 1 },
-          totalEarnings: 150.00,
-          totalAmount: 180.00,
-          platformFees: 30.00,
-          deliveryCount: 6,
-          averageEarnings: 25.00,
-          date: '2024-01'
-        },
-        {
-          _id: { year: 2024, month: 2 },
-          totalEarnings: 200.00,
-          totalAmount: 240.00,
-          platformFees: 40.00,
-          deliveryCount: 8,
-          averageEarnings: 25.00,
-          date: '2024-02'
-        }
-      ]);
+  describe('addBonus', () => {
+    let earnings;
+
+    beforeEach(async () => {
+      earnings = new Earnings({
+        rider: mockRiderId,
+        offer: new mongoose.Types.ObjectId(),
+        payment: new mongoose.Types.ObjectId(),
+        grossAmount: 25.00,
+        platformFee: 2.50,
+        netAmount: 22.50,
+        paymentStatus: 'paid',
+        paymentMethod: 'card'
+      });
+      await earnings.save();
     });
 
-    test('should return monthly earnings breakdown', async () => {
-      const result = await earningsService.getEarningsBreakdown(riderId, 'monthly');
-
-      expect(result).toHaveLength(2);
-      expect(result[0].period).toBe('2024-01');
-      expect(result[0].totalEarnings).toBe(150.00);
-      expect(result[0].deliveryCount).toBe(6);
-      expect(result[1].period).toBe('2024-02');
-      expect(result[1].totalEarnings).toBe(200.00);
-    });
-
-    test('should handle daily breakdown', async () => {
-      Payment.aggregate = jest.fn().mockResolvedValue([
-        {
-          _id: { year: 2024, month: 1, day: 15 },
-          totalEarnings: 50.00,
-          totalAmount: 60.00,
-          platformFees: 10.00,
-          deliveryCount: 2,
-          averageEarnings: 25.00,
-          date: '2024-01-15'
-        }
-      ]);
-
-      const result = await earningsService.getEarningsBreakdown(riderId, 'daily');
-
-      expect(result).toHaveLength(1);
-      expect(result[0].period).toBe('2024-01-15');
-      expect(result[0].totalEarnings).toBe(50.00);
-    });
-
-    test('should handle weekly breakdown', async () => {
-      Payment.aggregate = jest.fn().mockResolvedValue([
-        {
-          _id: { year: 2024, week: 3 },
-          totalEarnings: 75.00,
-          totalAmount: 90.00,
-          platformFees: 15.00,
-          deliveryCount: 3,
-          averageEarnings: 25.00,
-          date: '2024-W03'
-        }
-      ]);
-
-      const result = await earningsService.getEarningsBreakdown(riderId, 'weekly');
-
-      expect(result).toHaveLength(1);
-      expect(result[0].period).toBe('2024-W03');
-      expect(result[0].totalEarnings).toBe(75.00);
-    });
-
-    test('should apply date filters', async () => {
-      const options = {
-        startDate: '2024-01-01',
-        endDate: '2024-01-31',
-        limit: 5
-      };
-
-      await earningsService.getEarningsBreakdown(riderId, 'monthly', options);
-
-      expect(Payment.aggregate).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            $match: expect.objectContaining({
-              rider: riderId,
-              status: 'completed',
-              createdAt: expect.objectContaining({
-                $gte: new Date('2024-01-01'),
-                $lte: new Date('2024-01-31')
-              })
-            })
-          }),
-          expect.objectContaining({ $limit: 5 })
-        ])
+    test('should add bonus successfully', async () => {
+      const adminId = new mongoose.Types.ObjectId();
+      const result = await EarningsService.addBonus(
+        earnings._id.toString(),
+        5.00,
+        'Peak hours bonus',
+        adminId.toString()
       );
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Bonus added successfully');
+      expect(result.earnings.bonusAmount).toBe(5.00);
+      expect(result.earnings.bonusReason).toBe('Peak hours bonus');
+      expect(result.earnings.finalAmount).toBe(27.50); // 22.50 + 5.00
+    });
+
+    test('should throw error for non-existent earnings', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId();
+      
+      await expect(EarningsService.addBonus(
+        nonExistentId.toString(),
+        5.00,
+        'Bonus',
+        new mongoose.Types.ObjectId().toString()
+      )).rejects.toThrow('Earnings record not found');
+    });
+
+    test('should throw error for negative bonus amount', async () => {
+      await expect(EarningsService.addBonus(
+        earnings._id.toString(),
+        -5.00,
+        'Invalid bonus',
+        new mongoose.Types.ObjectId().toString()
+      )).rejects.toThrow('Bonus amount must be positive');
+    });
+
+    test('should throw error for zero bonus amount', async () => {
+      await expect(EarningsService.addBonus(
+        earnings._id.toString(),
+        0,
+        'Invalid bonus',
+        new mongoose.Types.ObjectId().toString()
+      )).rejects.toThrow('Bonus amount must be positive');
     });
   });
 
-  describe('getRiderPerformanceMetrics', () => {
-    beforeEach(() => {
-      // Mock offer counts
-      Offer.countDocuments = jest.fn()
-        .mockResolvedValueOnce(25) // total offers
-        .mockResolvedValueOnce(20); // completed offers
+  describe('addAdjustment', () => {
+    let earnings;
 
-      // Mock payment aggregation
-      Payment.aggregate = jest.fn().mockResolvedValue([{
-        _id: null,
-        totalEarnings: 500.00,
-        deliveryCount: 20
-      }]);
-    });
-
-    test('should return comprehensive performance metrics', async () => {
-      const result = await earningsService.getRiderPerformanceMetrics(riderId);
-
-      expect(result).toHaveProperty('completionRate');
-      expect(result).toHaveProperty('totalDeliveries');
-      expect(result).toHaveProperty('averageDeliveryTime');
-      expect(result).toHaveProperty('averageRating');
-      expect(result).toHaveProperty('earningsEfficiency');
-      expect(result).toHaveProperty('deliveryPatterns');
-
-      expect(result.completionRate).toBe(80); // 20/25 * 100
-      expect(result.totalDeliveries).toBe(20);
-    });
-
-    test('should handle zero deliveries', async () => {
-      Offer.countDocuments = jest.fn()
-        .mockResolvedValueOnce(0) // total offers
-        .mockResolvedValueOnce(0); // completed offers
-
-      const result = await earningsService.getRiderPerformanceMetrics(riderId);
-
-      expect(result.completionRate).toBe(0);
-      expect(result.totalDeliveries).toBe(0);
-    });
-  });
-
-  describe('Earnings Calculations', () => {
-    test('should calculate pending earnings correctly', async () => {
-      Payment.find = jest.fn().mockResolvedValue([
-        { riderEarnings: 15.00 },
-        { riderEarnings: 20.00 },
-        { riderEarnings: 10.00 }
-      ]);
-
-      const pendingEarnings = await earningsService._getPendingEarnings(riderId);
-
-      expect(Payment.find).toHaveBeenCalledWith({
-        rider: riderId,
-        status: { $in: ['pending', 'processing'] }
+    beforeEach(async () => {
+      earnings = new Earnings({
+        rider: mockRiderId,
+        offer: new mongoose.Types.ObjectId(),
+        payment: new mongoose.Types.ObjectId(),
+        grossAmount: 25.00,
+        platformFee: 2.50,
+        netAmount: 22.50,
+        paymentStatus: 'paid',
+        paymentMethod: 'card'
       });
-      expect(pendingEarnings).toBe(45.00);
+      await earnings.save();
     });
 
-    test('should handle no pending earnings', async () => {
-      Payment.find = jest.fn().mockResolvedValue([]);
+    test('should add adjustment successfully', async () => {
+      const adjustment = {
+        amount: 3.00,
+        reason: 'Distance correction',
+        appliedBy: new mongoose.Types.ObjectId()
+      };
 
-      const pendingEarnings = await earningsService._getPendingEarnings(riderId);
+      const result = await EarningsService.addAdjustment(earnings._id.toString(), adjustment);
 
-      expect(pendingEarnings).toBe(0);
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Adjustment added successfully');
+      expect(result.earnings.adjustments).toHaveLength(1);
+      expect(result.earnings.adjustments[0].amount).toBe(3.00);
+      expect(result.earnings.adjustments[0].reason).toBe('Distance correction');
     });
 
-    test('should calculate earnings trends', async () => {
-      // Mock current month earnings
-      Payment.aggregate = jest.fn()
-        .mockResolvedValueOnce([{
-          _id: null,
-          totalEarnings: 200.00,
-          deliveryCount: 8
-        }])
-        .mockResolvedValueOnce([{
-          _id: null,
-          totalEarnings: 150.00,
-          deliveryCount: 6
-        }]);
-
-      const trends = await earningsService._calculateEarningsTrends(riderId);
-
-      expect(trends.currentMonthEarnings).toBe(200.00);
-      expect(trends.lastMonthEarnings).toBe(150.00);
-      expect(trends.currentMonthDeliveries).toBe(8);
-      expect(trends.lastMonthDeliveries).toBe(6);
-      expect(trends.earningsChange).toBe(33.33); // (200-150)/150 * 100
-      expect(trends.deliveryChange).toBe(33.33); // (8-6)/6 * 100
-    });
-
-    test('should handle zero previous earnings in trends', async () => {
-      Payment.aggregate = jest.fn()
-        .mockResolvedValueOnce([{
-          _id: null,
-          totalEarnings: 100.00,
-          deliveryCount: 4
-        }])
-        .mockResolvedValueOnce([]); // No previous month data
-
-      const trends = await earningsService._calculateEarningsTrends(riderId);
-
-      expect(trends.earningsChange).toBe(0);
-      expect(trends.deliveryChange).toBe(0);
+    test('should throw error for non-existent earnings', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId();
+      const adjustment = { amount: 3.00, reason: 'Test' };
+      
+      await expect(EarningsService.addAdjustment(nonExistentId.toString(), adjustment))
+        .rejects.toThrow('Earnings record not found');
     });
   });
 
-  describe('Time-based Earnings', () => {
-    beforeEach(() => {
-      Payment.aggregate = jest.fn().mockResolvedValue([{
-        _id: null,
-        totalEarnings: 50.00,
-        deliveryCount: 2,
-        averageEarnings: 25.00
-      }]);
+  describe('getEarningsComparison', () => {
+    beforeEach(async () => {
+      // Create earnings for the test rider
+      const earnings = new Earnings({
+        rider: mockRiderId,
+        offer: new mongoose.Types.ObjectId(),
+        payment: new mongoose.Types.ObjectId(),
+        grossAmount: 25.00,
+        platformFee: 2.50,
+        netAmount: 22.50,
+        paymentStatus: 'paid',
+        paymentMethod: 'card',
+        distance: 5000,
+        duration: 30,
+        earnedAt: new Date()
+      });
+      await earnings.save();
+
+      // Create earnings for other riders to establish platform averages
+      const otherRider = new mongoose.Types.ObjectId();
+      const otherEarnings = new Earnings({
+        rider: otherRider,
+        offer: new mongoose.Types.ObjectId(),
+        payment: new mongoose.Types.ObjectId(),
+        grossAmount: 20.00,
+        platformFee: 2.00,
+        netAmount: 18.00,
+        paymentStatus: 'paid',
+        paymentMethod: 'card',
+        distance: 4000,
+        duration: 25,
+        earnedAt: new Date()
+      });
+      await otherEarnings.save();
     });
 
-    test('should calculate time-based earnings for all periods', async () => {
-      const timeBasedEarnings = await earningsService._getTimeBasedEarnings(riderId, 'USD');
+    test('should return earnings comparison', async () => {
+      const comparison = await EarningsService.getEarningsComparison(mockRiderId.toString(), 'month');
 
-      expect(timeBasedEarnings).toHaveProperty('today');
-      expect(timeBasedEarnings).toHaveProperty('thisWeek');
-      expect(timeBasedEarnings).toHaveProperty('thisMonth');
-      expect(timeBasedEarnings).toHaveProperty('thisYear');
-
-      expect(timeBasedEarnings.today.currency).toBe('USD');
-      expect(timeBasedEarnings.today.totalEarnings).toBe(50.00);
-      expect(timeBasedEarnings.today.deliveryCount).toBe(2);
-    });
-
-    test('should handle empty time periods', async () => {
-      Payment.aggregate = jest.fn().mockResolvedValue([]);
-
-      const timeBasedEarnings = await earningsService._getTimeBasedEarnings(riderId, 'USD');
-
-      expect(timeBasedEarnings.today.totalEarnings).toBe(0);
-      expect(timeBasedEarnings.today.deliveryCount).toBe(0);
-      expect(timeBasedEarnings.today.averageEarnings).toBe(0);
-    });
-  });
-
-  describe('Performance Metrics Calculations', () => {
-    test('should calculate earnings efficiency', async () => {
-      Payment.aggregate = jest.fn().mockResolvedValue([{
-        _id: null,
-        totalEarnings: 300.00,
-        deliveryCount: 12
-      }]);
-
-      const efficiency = await earningsService._calculateEarningsEfficiency(riderId);
-
-      expect(efficiency.earningsPerDelivery).toBe(25.00); // 300/12
-      expect(efficiency.totalDeliveries).toBe(12);
-      expect(efficiency.estimatedTotalHours).toBe(18); // 12 * 1.5
-      expect(efficiency.earningsPerHour).toBe(16.67); // 300/18, rounded
-    });
-
-    test('should handle zero deliveries in efficiency calculation', async () => {
-      Payment.aggregate = jest.fn().mockResolvedValue([]);
-
-      const efficiency = await earningsService._calculateEarningsEfficiency(riderId);
-
-      expect(efficiency.earningsPerDelivery).toBe(0);
-      expect(efficiency.earningsPerHour).toBe(0);
-      expect(efficiency.totalDeliveries).toBe(0);
-    });
-
-    test('should analyze delivery patterns', async () => {
-      Payment.aggregate = jest.fn().mockResolvedValue([
-        {
-          _id: { dayOfWeek: 1, hour: 9 }, // Monday, 9 AM
-          deliveryCount: 2,
-          totalEarnings: 50.00,
-          averageEarnings: 25.00
-        },
-        {
-          _id: { dayOfWeek: 1, hour: 14 }, // Monday, 2 PM
-          deliveryCount: 1,
-          totalEarnings: 30.00,
-          averageEarnings: 30.00
-        },
-        {
-          _id: { dayOfWeek: 2, hour: 9 }, // Tuesday, 9 AM
-          deliveryCount: 1,
-          totalEarnings: 25.00,
-          averageEarnings: 25.00
-        }
-      ]);
-
-      const patterns = await earningsService._analyzeDeliveryPatterns(riderId);
-
-      expect(patterns.dayPatterns).toHaveProperty('1'); // Monday
-      expect(patterns.dayPatterns).toHaveProperty('2'); // Tuesday
-      expect(patterns.hourPatterns).toHaveProperty('9'); // 9 AM
-      expect(patterns.hourPatterns).toHaveProperty('14'); // 2 PM
-
-      expect(patterns.dayPatterns['1'].deliveryCount).toBe(3); // 2 + 1
-      expect(patterns.dayPatterns['1'].totalEarnings).toBe(80.00); // 50 + 30
-      expect(patterns.hourPatterns['9'].deliveryCount).toBe(3); // 2 + 1
-      expect(patterns.hourPatterns['9'].totalEarnings).toBe(75.00); // 50 + 25
+      expect(comparison.success).toBe(true);
+      expect(comparison.period).toBe('month');
+      expect(comparison.comparison).toBeDefined();
+      expect(comparison.riderSummary).toBeDefined();
+      expect(comparison.platformAverages).toBeDefined();
+      
+      expect(comparison.comparison.earningsPerDelivery).toBeDefined();
+      expect(comparison.comparison.earningsPerHour).toBeDefined();
+      expect(comparison.comparison.earningsPerKm).toBeDefined();
+      
+      expect(comparison.comparison.earningsPerDelivery.rider).toBe(22.50);
+      expect(comparison.comparison.earningsPerDelivery.platform).toBeDefined();
+      expect(comparison.comparison.earningsPerDelivery.difference).toBeDefined();
     });
   });
 
-  describe('Error Handling', () => {
-    test('should handle database errors gracefully', async () => {
-      Payment.getPaymentStats = jest.fn().mockRejectedValue(new Error('Database error'));
+  describe('updatePaymentStatus', () => {
+    let earnings, payment;
 
-      await expect(earningsService.getRiderEarningsSummary(riderId))
-        .rejects.toThrow('Database error');
+    beforeEach(async () => {
+      payment = await Payment.create({
+        offer: new mongoose.Types.ObjectId(),
+        business: mockBusinessId,
+        rider: mockRiderId,
+        totalAmount: 25.00,
+        platformFee: 2.50,
+        riderEarnings: 22.50,
+        currency: 'USD',
+        paymentMethod: 'credit_card',
+        status: 'pending'
+      });
+
+      earnings = new Earnings({
+        rider: mockRiderId,
+        offer: new mongoose.Types.ObjectId(),
+        payment: payment._id,
+        grossAmount: 25.00,
+        platformFee: 2.50,
+        netAmount: 22.50,
+        paymentStatus: 'pending',
+        paymentMethod: 'card'
+      });
+      await earnings.save();
     });
 
-    test('should handle aggregation errors', async () => {
-      Payment.aggregate = jest.fn().mockRejectedValue(new Error('Aggregation failed'));
+    test('should update payment status successfully', async () => {
+      const result = await EarningsService.updatePaymentStatus(earnings._id.toString(), 'paid');
 
-      await expect(earningsService.getEarningsBreakdown(riderId))
-        .rejects.toThrow('Aggregation failed');
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Payment status updated successfully');
+      expect(result.earnings.paymentStatus).toBe('paid');
+
+      // Verify related payment was also updated
+      const updatedPayment = await Payment.findById(payment._id);
+      expect(updatedPayment.status).toBe('completed');
     });
 
-    test('should return default values on calculation errors', async () => {
-      Payment.aggregate = jest.fn().mockRejectedValue(new Error('Calculation error'));
+    test('should throw error for non-existent earnings', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId();
+      
+      await expect(EarningsService.updatePaymentStatus(nonExistentId.toString(), 'paid'))
+        .rejects.toThrow('Earnings record not found');
+    });
 
-      const trends = await earningsService._calculateEarningsTrends(riderId);
+    test('should handle different status updates', async () => {
+      // Test processing status
+      await EarningsService.updatePaymentStatus(earnings._id.toString(), 'processing');
+      let updatedEarnings = await Earnings.findById(earnings._id);
+      expect(updatedEarnings.paymentStatus).toBe('processing');
 
-      expect(trends.earningsChange).toBe(0);
-      expect(trends.deliveryChange).toBe(0);
-      expect(trends.currentMonthEarnings).toBe(0);
+      // Test failed status
+      await EarningsService.updatePaymentStatus(earnings._id.toString(), 'failed');
+      updatedEarnings = await Earnings.findById(earnings._id);
+      expect(updatedEarnings.paymentStatus).toBe('failed');
+    });
+  });
+
+  describe('Helper Methods', () => {
+    test('should map payment methods correctly', () => {
+      expect(EarningsService.mapPaymentMethod('cash')).toBe('cash');
+      expect(EarningsService.mapPaymentMethod('card')).toBe('card');
+      expect(EarningsService.mapPaymentMethod('credit_card')).toBe('card');
+      expect(EarningsService.mapPaymentMethod('debit_card')).toBe('card');
+      expect(EarningsService.mapPaymentMethod('paypal')).toBe('digital');
+      expect(EarningsService.mapPaymentMethod('stripe')).toBe('digital');
+      expect(EarningsService.mapPaymentMethod('unknown')).toBe('card'); // Default
+    });
+
+    test('should calculate performance metrics correctly', () => {
+      const summary = {
+        totalFinal: 100,
+        totalDeliveries: 5,
+        totalDuration: 150, // 2.5 hours
+        totalDistance: 25000 // 25km
+      };
+
+      const metrics = EarningsService.calculatePerformanceMetrics(summary);
+
+      expect(metrics.efficiency.earningsPerHour).toBeCloseTo(40, 2); // (100/150)*60
+      expect(metrics.efficiency.earningsPerKm).toBeCloseTo(4, 2); // 100/25
+      expect(metrics.efficiency.earningsPerDelivery).toBe(20); // 100/5
+      expect(metrics.productivity.deliveriesPerHour).toBeCloseTo(2, 2); // (5/150)*60
+      expect(metrics.productivity.averageDistance).toBe(5000); // 25000/5
+      expect(metrics.productivity.averageDuration).toBe(30); // 150/5
+    });
+
+    test('should calculate percentage difference correctly', () => {
+      expect(EarningsService.calculatePercentageDifference(110, 100)).toBe(10.0);
+      expect(EarningsService.calculatePercentageDifference(90, 100)).toBe(-10.0);
+      expect(EarningsService.calculatePercentageDifference(100, 100)).toBe(0.0);
+      expect(EarningsService.calculatePercentageDifference(50, 0)).toBe(0); // Handle division by zero
     });
   });
 });
