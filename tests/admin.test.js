@@ -429,6 +429,231 @@ describe('Admin Authentication and Routes', () => {
       });
     });
   });
+
+  describe('System Monitoring and Metrics', () => {
+    beforeEach(async () => {
+      // Create additional test data for monitoring
+      await Offer.create([
+        {
+          businessId: businessUser._id,
+          packageDetails: { description: 'Test package 1', weight: 1, dimensions: { length: 10, width: 10, height: 10 } },
+          pickup: { address: 'Pickup 1', coordinates: [-122.4194, 37.7749] },
+          delivery: { address: 'Delivery 1', coordinates: [-122.4094, 37.7849] },
+          payment: { amount: 25.00, method: 'card' },
+          status: 'delivered',
+          riderId: riderUser._id
+        },
+        {
+          businessId: businessUser._id,
+          packageDetails: { description: 'Test package 2', weight: 2, dimensions: { length: 15, width: 15, height: 15 } },
+          pickup: { address: 'Pickup 2', coordinates: [-122.4194, 37.7749] },
+          delivery: { address: 'Delivery 2', coordinates: [-122.4094, 37.7849] },
+          payment: { amount: 30.00, method: 'card' },
+          status: 'failed'
+        }
+      ]);
+
+      await Payment.create([
+        {
+          businessId: businessUser._id,
+          riderId: riderUser._id,
+          amount: 25.00,
+          status: 'completed',
+          method: 'card'
+        },
+        {
+          businessId: businessUser._id,
+          amount: 30.00,
+          status: 'failed',
+          method: 'card'
+        }
+      ]);
+    });
+
+    describe('GET /api/admin/system/metrics', () => {
+      test('should get detailed system metrics', async () => {
+        const response = await request(app)
+          .get('/api/admin/system/metrics')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.system).toBeDefined();
+        expect(response.body.data.process).toBeDefined();
+        expect(response.body.data.database).toBeDefined();
+        expect(response.body.data.system.platform).toBeDefined();
+        expect(response.body.data.process.uptime).toBeGreaterThan(0);
+        expect(response.body.data.database.status).toBe('connected');
+      });
+
+      test('should require admin authentication and analytics permission', async () => {
+        const response = await request(app)
+          .get('/api/admin/system/metrics');
+
+        expect(response.status).toBe(401);
+        expect(response.body.success).toBe(false);
+      });
+    });
+
+    describe('GET /api/admin/monitoring/user-activity', () => {
+      test('should get user activity monitoring data', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/user-activity')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.summary).toBeDefined();
+        expect(response.body.data.recentRegistrations).toBeDefined();
+        expect(response.body.data.recentOffers).toBeDefined();
+        expect(response.body.data.recentPayments).toBeDefined();
+        expect(response.body.data.summary.period).toBe('24h');
+      });
+
+      test('should support different time periods', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/user-activity?period=1h&limit=50')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.data.summary.period).toBe('1h');
+      });
+
+      test('should require admin authentication and analytics permission', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/user-activity');
+
+        expect(response.status).toBe(401);
+        expect(response.body.success).toBe(false);
+      });
+    });
+
+    describe('GET /api/admin/monitoring/performance', () => {
+      test('should get platform performance metrics', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/performance')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.deliveryMetrics).toBeDefined();
+        expect(response.body.data.offerMetrics).toBeDefined();
+        expect(response.body.data.paymentMetrics).toBeDefined();
+        expect(response.body.data.userMetrics).toBeDefined();
+        expect(response.body.data.period).toBe('24h');
+      });
+
+      test('should calculate performance metrics correctly', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/performance')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.data.deliveryMetrics.totalDeliveries).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.offerMetrics.totalOffers).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.paymentMetrics.totalPayments).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.userMetrics.totalUsers).toBeGreaterThanOrEqual(0);
+      });
+
+      test('should support different time periods', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/performance?period=7d')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.data.period).toBe('7d');
+      });
+
+      test('should require admin authentication and analytics permission', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/performance');
+
+        expect(response.status).toBe(401);
+        expect(response.body.success).toBe(false);
+      });
+    });
+
+    describe('GET /api/admin/monitoring/errors', () => {
+      test('should get error monitoring data', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/errors')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.summary).toBeDefined();
+        expect(response.body.data.failedOffers).toBeDefined();
+        expect(response.body.data.failedPayments).toBeDefined();
+        expect(response.body.data.suspendedUsers).toBeDefined();
+        expect(response.body.data.summary.period).toBe('24h');
+      });
+
+      test('should track failed operations correctly', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/errors')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.data.summary.totalFailedOffers).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.summary.totalFailedPayments).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.summary.errorsByType).toBeDefined();
+      });
+
+      test('should support different time periods and limits', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/errors?period=7d&limit=25')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.data.summary.period).toBe('7d');
+      });
+
+      test('should require admin authentication and analytics permission', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/errors');
+
+        expect(response.status).toBe(401);
+        expect(response.body.success).toBe(false);
+      });
+    });
+
+    describe('GET /api/admin/monitoring/status', () => {
+      test('should get real-time platform status', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/status')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.status).toBeDefined();
+        expect(response.body.data.metrics).toBeDefined();
+        expect(response.body.data.metrics.activeUsers).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.metrics.activeOffers).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.metrics.onlineRiders).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.metrics.pendingPayments).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.metrics.recentErrors).toBeGreaterThanOrEqual(0);
+        expect(response.body.data.uptime).toBeGreaterThan(0);
+      });
+
+      test('should determine system status correctly', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/status')
+          .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(response.status).toBe(200);
+        expect(['healthy', 'warning', 'degraded']).toContain(response.body.data.status);
+        expect(Array.isArray(response.body.data.issues)).toBe(true);
+      });
+
+      test('should require admin authentication', async () => {
+        const response = await request(app)
+          .get('/api/admin/monitoring/status');
+
+        expect(response.status).toBe(401);
+        expect(response.body.success).toBe(false);
+      });
+    });
+  });
 });
 
 describe('AdminAuth Middleware', () => {

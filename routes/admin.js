@@ -488,4 +488,519 @@ router.get('/system/health', AdminAuth.requireAdmin(), AdminAuth.auditLog(), asy
   }
 });
 
+// Get detailed system metrics
+router.get('/system/metrics', AdminAuth.requireAdmin(), AdminAuth.requirePermission('view_analytics'), AdminAuth.auditLog(), async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const os = require('os');
+    
+    // Database metrics
+    const dbStats = await mongoose.connection.db.stats();
+    
+    // System metrics
+    const systemMetrics = {
+      timestamp: new Date(),
+      system: {
+        platform: os.platform(),
+        arch: os.arch(),
+        cpus: os.cpus().length,
+        totalMemory: os.totalmem(),
+        freeMemory: os.freemem(),
+        uptime: os.uptime(),
+        loadAverage: os.loadavg()
+      },
+      process: {
+        pid: process.pid,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        cpuUsage: process.cpuUsage(),
+        nodeVersion: process.version,
+        platform: process.platform,
+        arch: process.arch
+      },
+      database: {
+        status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        readyState: mongoose.connection.readyState,
+        host: mongoose.connection.host,
+        port: mongoose.connection.port,
+        name: mongoose.connection.name,
+        collections: dbStats.collections,
+        dataSize: dbStats.dataSize,
+        storageSize: dbStats.storageSize,
+        indexes: dbStats.indexes,
+        indexSize: dbStats.indexSize
+      }
+    };
+
+    res.json({
+      success: true,
+      data: systemMetrics
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to get system metrics', error);
+  }
+});
+
+// Get user activity monitoring
+router.get('/monitoring/user-activity', AdminAuth.requireAdmin(), AdminAuth.requirePermission('view_analytics'), AdminAuth.auditLog(), async (req, res) => {
+  try {
+    const { period = '24h', limit = 100 } = req.query;
+    
+    // Calculate date range
+    let startDate;
+    switch (period) {
+      case '1h':
+        startDate = new Date(Date.now() - 60 * 60 * 1000);
+        break;
+      case '24h':
+        startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        break;
+      case '7d':
+        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    }
+
+    // Get recent user registrations
+    const recentRegistrations = await User.find({
+      createdAt: { $gte: startDate }
+    })
+    .select('name email role createdAt isVerified')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit));
+
+    // Get recent offer activity
+    const recentOffers = await Offer.find({
+      createdAt: { $gte: startDate }
+    })
+    .populate('businessId', 'name email profile.businessName')
+    .populate('riderId', 'name email')
+    .select('status createdAt updatedAt payment.amount')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit));
+
+    // Get recent payment activity
+    const recentPayments = await Payment.find({
+      createdAt: { $gte: startDate }
+    })
+    .populate('businessId', 'name email profile.businessName')
+    .populate('riderId', 'name email')
+    .select('amount status method createdAt')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit));
+
+    // Activity summary
+    const activitySummary = {
+      period,
+      totalRegistrations: recentRegistrations.length,
+      totalOffers: recentOffers.length,
+      totalPayments: recentPayments.length,
+      registrationsByRole: {
+        business: recentRegistrations.filter(u => u.role === 'business').length,
+        rider: recentRegistrations.filter(u => u.role === 'rider').length
+      },
+      offersByStatus: recentOffers.reduce((acc, offer) => {
+        acc[offer.status] = (acc[offer.status] || 0) + 1;
+        return acc;
+      }, {}),
+      paymentsByStatus: recentPayments.reduce((acc, payment) => {
+        acc[payment.status] = (acc[payment.status] || 0) + 1;
+        return acc;
+      }, {})
+    };
+
+    res.json({
+      success: true,
+      data: {
+        summary: activitySummary,
+        recentRegistrations,
+        recentOffers,
+        recentPayments,
+        generatedAt: new Date()
+      }
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to get user activity', error);
+  }
+});
+
+// Get platform performance metrics
+router.get('/monitoring/performance', AdminAuth.requireAdmin(), AdminAuth.requirePermission('view_analytics'), AdminAuth.auditLog(), async (req, res) => {
+  try {
+    const { period = '24h' } = req.query;
+    
+    // Calculate date range
+    let startDate;
+    switch (period) {
+      case '1h':
+        startDate = new Date(Date.now() - 60 * 60 * 1000);
+        break;
+      case '24h':
+        startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        break;
+      case '7d':
+        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    }
+
+    // Performance metrics aggregation
+    const [
+      avgDeliveryTime,
+      offerAcceptanceRate,
+      paymentSuccessRate,
+      userVerificationRate
+    ] = await Promise.all([
+      // Average delivery time (from accepted to delivered)
+      Offer.aggregate([
+        {
+          $match: {
+            status: 'delivered',
+            updatedAt: { $gte: startDate }
+          }
+        },
+        {
+          $addFields: {
+            deliveryTime: {
+              $subtract: ['$updatedAt', '$createdAt']
+            }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            avgDeliveryTime: { $avg: '$deliveryTime' },
+            minDeliveryTime: { $min: '$deliveryTime' },
+            maxDeliveryTime: { $max: '$deliveryTime' },
+            totalDeliveries: { $sum: 1 }
+          }
+        }
+      ]),
+
+      // Offer acceptance rate
+      Offer.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: startDate }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalOffers: { $sum: 1 },
+            acceptedOffers: {
+              $sum: {
+                $cond: [
+                  { $ne: ['$status', 'pending'] },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        },
+        {
+          $addFields: {
+            acceptanceRate: {
+              $multiply: [
+                { $divide: ['$acceptedOffers', '$totalOffers'] },
+                100
+              ]
+            }
+          }
+        }
+      ]),
+
+      // Payment success rate
+      Payment.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: startDate }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalPayments: { $sum: 1 },
+            successfulPayments: {
+              $sum: {
+                $cond: [
+                  { $eq: ['$status', 'completed'] },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        },
+        {
+          $addFields: {
+            successRate: {
+              $multiply: [
+                { $divide: ['$successfulPayments', '$totalPayments'] },
+                100
+              ]
+            }
+          }
+        }
+      ]),
+
+      // User verification rate
+      User.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: startDate }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalUsers: { $sum: 1 },
+            verifiedUsers: {
+              $sum: {
+                $cond: [
+                  { $eq: ['$isVerified', true] },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        },
+        {
+          $addFields: {
+            verificationRate: {
+              $multiply: [
+                { $divide: ['$verifiedUsers', '$totalUsers'] },
+                100
+              ]
+            }
+          }
+        }
+      ])
+    ]);
+
+    const performanceMetrics = {
+      period,
+      deliveryMetrics: avgDeliveryTime[0] || {
+        avgDeliveryTime: 0,
+        minDeliveryTime: 0,
+        maxDeliveryTime: 0,
+        totalDeliveries: 0
+      },
+      offerMetrics: offerAcceptanceRate[0] || {
+        totalOffers: 0,
+        acceptedOffers: 0,
+        acceptanceRate: 0
+      },
+      paymentMetrics: paymentSuccessRate[0] || {
+        totalPayments: 0,
+        successfulPayments: 0,
+        successRate: 0
+      },
+      userMetrics: userVerificationRate[0] || {
+        totalUsers: 0,
+        verifiedUsers: 0,
+        verificationRate: 0
+      },
+      generatedAt: new Date()
+    };
+
+    res.json({
+      success: true,
+      data: performanceMetrics
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to get performance metrics', error);
+  }
+});
+
+// Get error monitoring and logs
+router.get('/monitoring/errors', AdminAuth.requireAdmin(), AdminAuth.requirePermission('view_analytics'), AdminAuth.auditLog(), async (req, res) => {
+  try {
+    const { period = '24h', limit = 50 } = req.query;
+    
+    // Calculate date range
+    let startDate;
+    switch (period) {
+      case '1h':
+        startDate = new Date(Date.now() - 60 * 60 * 1000);
+        break;
+      case '24h':
+        startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        break;
+      case '7d':
+        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    }
+
+    // In a production environment, you would have an error logging system
+    // For now, we'll simulate error monitoring with failed operations
+    const [
+      failedOffers,
+      failedPayments,
+      suspendedUsers
+    ] = await Promise.all([
+      // Failed or cancelled offers
+      Offer.find({
+        status: { $in: ['cancelled', 'failed'] },
+        updatedAt: { $gte: startDate }
+      })
+      .populate('businessId', 'name email')
+      .populate('riderId', 'name email')
+      .select('status createdAt updatedAt payment.amount')
+      .sort({ updatedAt: -1 })
+      .limit(parseInt(limit)),
+
+      // Failed payments
+      Payment.find({
+        status: { $in: ['failed', 'cancelled'] },
+        createdAt: { $gte: startDate }
+      })
+      .populate('businessId', 'name email')
+      .populate('riderId', 'name email')
+      .select('amount status method createdAt error')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit)),
+
+      // Recently suspended users
+      User.find({
+        'profile.suspended': true,
+        'profile.suspendedAt': { $gte: startDate }
+      })
+      .select('name email role profile.suspensionReason profile.suspendedAt')
+      .sort({ 'profile.suspendedAt': -1 })
+      .limit(parseInt(limit))
+    ]);
+
+    const errorSummary = {
+      period,
+      totalFailedOffers: failedOffers.length,
+      totalFailedPayments: failedPayments.length,
+      totalSuspendedUsers: suspendedUsers.length,
+      errorsByType: {
+        offers: failedOffers.reduce((acc, offer) => {
+          acc[offer.status] = (acc[offer.status] || 0) + 1;
+          return acc;
+        }, {}),
+        payments: failedPayments.reduce((acc, payment) => {
+          acc[payment.status] = (acc[payment.status] || 0) + 1;
+          return acc;
+        }, {})
+      }
+    };
+
+    res.json({
+      success: true,
+      data: {
+        summary: errorSummary,
+        failedOffers,
+        failedPayments,
+        suspendedUsers,
+        generatedAt: new Date()
+      }
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to get error monitoring data', error);
+  }
+});
+
+// Get real-time platform status
+router.get('/monitoring/status', AdminAuth.requireAdmin(), AdminAuth.auditLog(), async (req, res) => {
+  try {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    
+    // Real-time counts
+    const [
+      activeUsers,
+      activeOffers,
+      onlineRiders,
+      pendingPayments,
+      recentErrors
+    ] = await Promise.all([
+      // Users active in the last hour (based on recent offers or payments)
+      User.countDocuments({
+        $or: [
+          { updatedAt: { $gte: oneHourAgo } },
+          { createdAt: { $gte: oneHourAgo } }
+        ]
+      }),
+
+      // Active offers (not completed or cancelled)
+      Offer.countDocuments({
+        status: { $in: ['pending', 'accepted', 'picked_up', 'in_transit'] }
+      }),
+
+      // Available riders
+      User.countDocuments({
+        role: 'rider',
+        'profile.isAvailable': true,
+        isVerified: true
+      }),
+
+      // Pending payments
+      Payment.countDocuments({
+        status: 'pending'
+      }),
+
+      // Recent errors (last hour)
+      Promise.all([
+        Offer.countDocuments({
+          status: { $in: ['cancelled', 'failed'] },
+          updatedAt: { $gte: oneHourAgo }
+        }),
+        Payment.countDocuments({
+          status: { $in: ['failed', 'cancelled'] },
+          createdAt: { $gte: oneHourAgo }
+        })
+      ]).then(([failedOffers, failedPayments]) => failedOffers + failedPayments)
+    ]);
+
+    // System status determination
+    let systemStatus = 'healthy';
+    const issues = [];
+
+    if (recentErrors > 10) {
+      systemStatus = 'degraded';
+      issues.push('High error rate detected');
+    }
+
+    if (onlineRiders < 5) {
+      systemStatus = systemStatus === 'healthy' ? 'warning' : systemStatus;
+      issues.push('Low rider availability');
+    }
+
+    if (pendingPayments > 50) {
+      systemStatus = systemStatus === 'healthy' ? 'warning' : systemStatus;
+      issues.push('High pending payment volume');
+    }
+
+    const platformStatus = {
+      status: systemStatus,
+      issues,
+      metrics: {
+        activeUsers,
+        activeOffers,
+        onlineRiders,
+        pendingPayments,
+        recentErrors
+      },
+      timestamp: now,
+      uptime: process.uptime()
+    };
+
+    res.json({
+      success: true,
+      data: platformStatus
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to get platform status', error);
+  }
+});
+
 module.exports = router;
