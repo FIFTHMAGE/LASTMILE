@@ -4,7 +4,7 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['business', 'rider'], required: true },
+  role: { type: String, enum: ['business', 'rider', 'admin'], required: true },
   profile: {
     // Business-specific fields
     businessName: { 
@@ -139,6 +139,13 @@ userSchema.methods.getProfileData = function() {
       isAvailable: this.profile.isAvailable,
       rating: this.profile.rating,
       completedDeliveries: this.profile.completedDeliveries
+    };
+  }
+
+  if (this.role === 'admin') {
+    return {
+      ...baseProfile,
+      permissions: ['read', 'write', 'delete', 'manage_users', 'view_analytics']
     };
   }
 

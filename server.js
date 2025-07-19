@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const { ErrorHandler } = require('./middleware/errorHandler');
 const { sanitizeInput } = require('./middleware/validation');
+const RateLimiter = require('./middleware/rateLimiter');
 
 const app = express();
 
@@ -14,6 +15,14 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Input sanitization
 app.use(sanitizeInput);
+
+// Apply rate limiting
+const rateLimiter = new RateLimiter({
+  trustProxy: process.env.TRUST_PROXY === 'true',
+  standardWindowMs: 15 * 60 * 1000, // 15 minutes
+  standardMaxRequests: process.env.NODE_ENV === 'production' ? 100 : 1000 // Higher limits in development
+});
+rateLimiter.applyLimiters(app);
 
 // MongoDB connection
 if (process.env.NODE_ENV !== 'test') {
@@ -30,12 +39,14 @@ const offerRoutes = require('./routes/offer');
 const notificationRoutes = require('./routes/notification');
 const earningsRoutes = require('./routes/earnings');
 const deliveryRoutes = require('./routes/delivery');
+const adminRoutes = require('./routes/admin');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/offers', offerRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/earnings', earningsRoutes);
 app.use('/api/delivery', deliveryRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/', (req, res) => {
   res.send('Last Mile API is running');
