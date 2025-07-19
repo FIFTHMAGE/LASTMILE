@@ -132,10 +132,13 @@
   - Add unit tests for payment model validation
 
 
+
   - _Requirements: 9.1, 9.2, 9.3_
 
 - [ ] 6.2 Implement rider earnings tracking
   - Create earnings calculation utilities
+
+
   - Add rider earnings history endpoints
   - Write unit tests for earnings calculations
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
