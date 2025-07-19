@@ -13,10 +13,34 @@ class LocationService {
     this.nominatimHeaders = {
       'User-Agent': 'LastMileDeliveryPlatform/1.0 (contact@lastmile.com)'
     };
+
+    // Simple in-memory cache for geocoding results
+    this.geocodeCache = new Map();
+    this.cacheMaxSize = 1000;
+    this.cacheExpiryMs = 24 * 60 * 60 * 1000; // 24 hours
+
+    // Rate limiting configuration
+    this.rateLimits = {
+      nominatim: {
+        requestsPerSecond: 1,
+        lastRequest: 0
+      },
+      google: {
+        requestsPerSecond: 50,
+        lastRequest: 0
+      }
+    };
+
+    // Retry configuration
+    this.retryConfig = {
+      maxRetries: 3,
+      baseDelay: 1000, // 1 second
+      maxDelay: 10000  // 10 seconds
+    };
   }
 
   /**
-   * Geocode an address to get coordinates
+   * Geocode an address to get coordinates with caching and retry logic
    * @param {string} address - The address to geocode
    * @param {object} options - Additional options
    * @returns {Promise<object>} - Geocoding result with coordinates
@@ -31,18 +55,84 @@ class LocationService {
       throw new Error('Address cannot be empty');
     }
 
+    // Check cache first
+    const cacheKey = `geocode:${trimmedAddress.toLowerCase()}`;
+    const cached = this._getFromCache(cacheKey);
+    if (cached && !options.skipCache) {
+      return cached;
+    }
+
     try {
+      let result;
+      
       // Try Google Maps API first if API key is available
       if (this.googleMapsApiKey && options.preferGoogle !== false) {
-        return await this._geocodeWithGoogle(trimmedAddress);
+        result = await this._geocodeWithRetry(() => this._geocodeWithGoogle(trimmedAddress), 'google');
+      } else {
+        // Fall back to Nominatim
+        result = await this._geocodeWithRetry(() => this._geocodeWithNominatim(trimmedAddress), 'nominatim');
       }
+
+      // Cache the result
+      this._setCache(cacheKey, result);
       
-      // Fall back to Nominatim
-      return await this._geocodeWithNominatim(trimmedAddress);
+      return result;
     } catch (error) {
       console.error('Geocoding error:', error.message);
       throw new Error(`Failed to geocode address: ${error.message}`);
     }
+  }
+
+  /**
+   * Batch geocode multiple addresses
+   * @param {string[]} addresses - Array of addresses to geocode
+   * @param {object} options - Additional options
+   * @returns {Promise<object[]>} - Array of geocoding results
+   */
+  async batchGeocodeAddresses(addresses, options = {}) {
+    if (!Array.isArray(addresses)) {
+      throw new Error('Addresses must be an array');
+    }
+
+    if (addresses.length === 0) {
+      return [];
+    }
+
+    if (addresses.length > 100) {
+      throw new Error('Maximum 100 addresses allowed per batch');
+    }
+
+    const results = [];
+    const batchSize = options.batchSize || 10;
+    const delay = options.delay || 100; // ms between requests
+
+    // Process in batches to avoid overwhelming the API
+    for (let i = 0; i < addresses.length; i += batchSize) {
+      const batch = addresses.slice(i, i + batchSize);
+      const batchPromises = batch.map(async (address, index) => {
+        try {
+          // Add small delay between requests to respect rate limits
+          if (index > 0) {
+            await this._delay(delay);
+          }
+          
+          const result = await this.geocodeAddress(address, options);
+          return { address, success: true, result };
+        } catch (error) {
+          return { address, success: false, error: error.message };
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+
+      // Add delay between batches
+      if (i + batchSize < addresses.length) {
+        await this._delay(delay * 2);
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -351,6 +441,337 @@ class LocationService {
       zipCode: address.postcode,
       country: address.country
     };
+  }
+
+  // Enhanced helper methods for caching, retry logic, and rate limiting
+
+  /**
+   * Get item from cache if not expired
+   * @param {string} key - Cache key
+   * @returns {object|null} - Cached item or null
+   */
+  _getFromCache(key) {
+    const item = this.geocodeCache.get(key);
+    if (!item) return null;
+
+    const now = Date.now();
+    if (now - item.timestamp > this.cacheExpiryMs) {
+      this.geocodeCache.delete(key);
+      return null;
+    }
+
+    return item.data;
+  }
+
+  /**
+   * Set item in cache with timestamp
+   * @param {string} key - Cache key
+   * @param {object} data - Data to cache
+   */
+  _setCache(key, data) {
+    // Clean cache if it's getting too large
+    if (this.geocodeCache.size >= this.cacheMaxSize) {
+      this._cleanCache();
+    }
+
+    this.geocodeCache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Clean expired items from cache
+   */
+  _cleanCache() {
+    const now = Date.now();
+    const keysToDelete = [];
+
+    for (const [key, item] of this.geocodeCache.entries()) {
+      if (now - item.timestamp > this.cacheExpiryMs) {
+        keysToDelete.push(key);
+      }
+    }
+
+    keysToDelete.forEach(key => this.geocodeCache.delete(key));
+
+    // If still too large, remove oldest items
+    if (this.geocodeCache.size >= this.cacheMaxSize) {
+      const entries = Array.from(this.geocodeCache.entries());
+      entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+      
+      const itemsToRemove = entries.slice(0, Math.floor(this.cacheMaxSize * 0.2));
+      itemsToRemove.forEach(([key]) => this.geocodeCache.delete(key));
+    }
+  }
+
+  /**
+   * Execute geocoding function with retry logic
+   * @param {Function} geocodeFunction - Function to execute
+   * @param {string} provider - Provider name for rate limiting
+   * @returns {Promise<object>} - Geocoding result
+   */
+  async _geocodeWithRetry(geocodeFunction, provider) {
+    let lastError;
+    
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        // Apply rate limiting
+        await this._applyRateLimit(provider);
+        
+        // Execute the geocoding function
+        return await geocodeFunction();
+      } catch (error) {
+        lastError = error;
+        
+        // Don't retry on certain errors
+        if (this._isNonRetryableError(error)) {
+          throw error;
+        }
+        
+        // Don't retry on the last attempt
+        if (attempt === this.retryConfig.maxRetries) {
+          break;
+        }
+        
+        // Calculate delay with exponential backoff
+        const delay = Math.min(
+          this.retryConfig.baseDelay * Math.pow(2, attempt),
+          this.retryConfig.maxDelay
+        );
+        
+        console.warn(`Geocoding attempt ${attempt + 1} failed, retrying in ${delay}ms:`, error.message);
+        await this._delay(delay);
+      }
+    }
+    
+    throw lastError;
+  }
+
+  /**
+   * Apply rate limiting for API requests
+   * @param {string} provider - Provider name
+   */
+  async _applyRateLimit(provider) {
+    const rateLimit = this.rateLimits[provider];
+    if (!rateLimit) return;
+
+    const now = Date.now();
+    const timeSinceLastRequest = now - rateLimit.lastRequest;
+    const minInterval = 1000 / rateLimit.requestsPerSecond;
+
+    if (timeSinceLastRequest < minInterval) {
+      const delay = minInterval - timeSinceLastRequest;
+      await this._delay(delay);
+    }
+
+    this.rateLimits[provider].lastRequest = Date.now();
+  }
+
+  /**
+   * Check if error should not be retried
+   * @param {Error} error - Error to check
+   * @returns {boolean} - True if error should not be retried
+   */
+  _isNonRetryableError(error) {
+    const nonRetryableMessages = [
+      'No results found',
+      'Invalid coordinate ranges',
+      'Coordinates must be numbers',
+      'Valid address string is required',
+      'Address cannot be empty',
+      'ZERO_RESULTS',
+      'INVALID_REQUEST',
+      'REQUEST_DENIED'
+    ];
+
+    return nonRetryableMessages.some(msg => 
+      error.message.includes(msg)
+    );
+  }
+
+  /**
+   * Delay execution for specified milliseconds
+   * @param {number} ms - Milliseconds to delay
+   * @returns {Promise} - Promise that resolves after delay
+   */
+  _delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Enhanced address validation with detailed analysis
+   * @param {string} address - Address to validate
+   * @param {object} options - Validation options
+   * @returns {Promise<object>} - Detailed validation result
+   */
+  async validateAddressDetailed(address, options = {}) {
+    try {
+      const result = await this.geocodeAddress(address, options);
+      
+      // Analyze address completeness
+      const completeness = this._analyzeAddressCompleteness(result.components);
+      
+      // Check if coordinates are in a reasonable location
+      const locationCheck = this._validateCoordinateLocation(result.coordinates);
+      
+      return {
+        isValid: true,
+        address: result.formattedAddress,
+        coordinates: result.coordinates,
+        confidence: result.confidence,
+        completeness,
+        locationCheck,
+        components: result.components,
+        provider: result.provider,
+        suggestions: this._generateAddressSuggestions(result.components)
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        error: error.message,
+        address: address,
+        suggestions: this._generateErrorSuggestions(error.message)
+      };
+    }
+  }
+
+  /**
+   * Analyze address completeness
+   * @param {object} components - Address components
+   * @returns {object} - Completeness analysis
+   */
+  _analyzeAddressCompleteness(components) {
+    const requiredFields = ['street', 'city', 'state', 'country'];
+    const optionalFields = ['streetNumber', 'zipCode'];
+    
+    const present = [];
+    const missing = [];
+    
+    requiredFields.forEach(field => {
+      if (components[field]) {
+        present.push(field);
+      } else {
+        missing.push(field);
+      }
+    });
+    
+    optionalFields.forEach(field => {
+      if (components[field]) {
+        present.push(field);
+      }
+    });
+    
+    const score = (present.length / (requiredFields.length + optionalFields.length)) * 100;
+    
+    return {
+      score: Math.round(score),
+      present,
+      missing,
+      isComplete: missing.length === 0
+    };
+  }
+
+  /**
+   * Validate coordinate location reasonableness
+   * @param {number[]} coordinates - [longitude, latitude]
+   * @returns {object} - Location validation result
+   */
+  _validateCoordinateLocation(coordinates) {
+    const [lng, lat] = coordinates;
+    
+    // Check if coordinates are at null island (0,0)
+    const isNullIsland = Math.abs(lng) < 0.1 && Math.abs(lat) < 0.1;
+    
+    // Simple land check - most populated areas are reasonable
+    // This is a basic check, in production you'd use a more sophisticated service
+    const isLikelyReasonable = !isNullIsland && (
+      Math.abs(lng) > 0.1 || Math.abs(lat) > 0.1
+    );
+    
+    return {
+      isReasonable: isLikelyReasonable,
+      isNullIsland,
+      warnings: [
+        ...(isNullIsland ? ['Coordinates appear to be at Null Island (0,0)'] : []),
+        ...(!isLikelyReasonable ? ['Coordinates may need verification'] : [])
+      ]
+    };
+  }
+
+  /**
+   * Generate address improvement suggestions
+   * @param {object} components - Address components
+   * @returns {string[]} - Array of suggestions
+   */
+  _generateAddressSuggestions(components) {
+    const suggestions = [];
+    
+    if (!components.streetNumber) {
+      suggestions.push('Consider including a street number for more precise location');
+    }
+    
+    if (!components.zipCode) {
+      suggestions.push('Adding a ZIP/postal code can improve geocoding accuracy');
+    }
+    
+    if (!components.state && components.country === 'USA') {
+      suggestions.push('Including the state can help with address disambiguation');
+    }
+    
+    return suggestions;
+  }
+
+  /**
+   * Generate suggestions based on error message
+   * @param {string} errorMessage - Error message
+   * @returns {string[]} - Array of suggestions
+   */
+  _generateErrorSuggestions(errorMessage) {
+    const suggestions = [];
+    
+    if (errorMessage.includes('No results found')) {
+      suggestions.push('Try using a more complete address with street, city, and state');
+      suggestions.push('Check for typos in the address');
+      suggestions.push('Try using a nearby landmark or intersection');
+    }
+    
+    if (errorMessage.includes('timeout')) {
+      suggestions.push('The geocoding service may be temporarily unavailable');
+      suggestions.push('Try again in a few moments');
+    }
+    
+    return suggestions;
+  }
+
+  /**
+   * Get cache statistics
+   * @returns {object} - Cache statistics
+   */
+  getCacheStats() {
+    const now = Date.now();
+    let expiredCount = 0;
+    
+    for (const [, item] of this.geocodeCache.entries()) {
+      if (now - item.timestamp > this.cacheExpiryMs) {
+        expiredCount++;
+      }
+    }
+    
+    return {
+      totalItems: this.geocodeCache.size,
+      expiredItems: expiredCount,
+      activeItems: this.geocodeCache.size - expiredCount,
+      maxSize: this.cacheMaxSize,
+      expiryMs: this.cacheExpiryMs
+    };
+  }
+
+  /**
+   * Clear the geocoding cache
+   */
+  clearCache() {
+    this.geocodeCache.clear();
   }
 }
 

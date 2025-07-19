@@ -61,19 +61,16 @@
 
 
 
-- [ ] 2.3 Implement offer filtering and sorting functionality
+- [x] 2.3 Implement offer filtering and sorting functionality
   - Add query parameters for distance, payment amount, and package type filters
-
-
-
-
   - Implement sorting by distance, payment, and creation time
   - Create unit tests for filtering and sorting logic
-
   - _Requirements: 4.3, 4.4_
 
 
-- [ ] 3. Create Location Services
+- [x] 3. Create Location Services
+
+
 - [ ] 3.1 Implement geocoding service integration
   - Create LocationService class with geocoding and reverse geocoding methods
   - Add address validation and coordinate conversion utilities
