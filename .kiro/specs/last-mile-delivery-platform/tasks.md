@@ -126,9 +126,12 @@
 - [x] 6.1 Create Payment model and basic payment processing
 
 
+
   - Implement Payment schema with transaction tracking
   - Create basic payment processing endpoints
   - Add unit tests for payment model validation
+
+
   - _Requirements: 9.1, 9.2, 9.3_
 
 - [ ] 6.2 Implement rider earnings tracking

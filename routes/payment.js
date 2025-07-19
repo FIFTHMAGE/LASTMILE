@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const PaymentService = require('../services/PaymentService');
+const EarningsService = require('../services/EarningsService');
 const Payment = require('../models/Payment');
 const auth = require('../middleware/auth');
 
-// Initialize payment service
+// Initialize services
 const paymentService = new PaymentService();
+const earningsService = new EarningsService();
 
 /**
  * @route POST /api/payments/process
@@ -352,7 +354,7 @@ router.post('/calculate-fees', auth, async (req, res) => {
 
 /**
  * @route GET /api/payments/rider/earnings
- * @desc Get rider earnings summary
+ * @desc Get comprehensive rider earnings summary
  * @access Private (Rider only)
  */
 router.get('/rider/earnings', auth, async (req, res) => {
@@ -365,33 +367,147 @@ router.get('/rider/earnings', auth, async (req, res) => {
       });
     }
 
-    const stats = await paymentService.getPaymentStats(req.user.id, 'rider');
-
-    // Get recent payments for earnings breakdown
-    const recentPayments = await paymentService.getPaymentHistory(
-      req.user.id,
-      'rider',
-      { status: 'completed', limit: 10 }
-    );
+    const { currency } = req.query;
+    const earningsSummary = await earningsService.getRiderEarningsSummary(req.user.id, { currency });
 
     res.json({
       success: true,
-      data: {
-        earnings: {
-          totalEarnings: stats.completedAmount,
-          monthlyEarnings: stats.monthlyEarnings || 0,
-          totalDeliveries: stats.completedPayments,
-          monthlyDeliveries: stats.monthlyDeliveries || 0,
-          averageEarningsPerDelivery: stats.averageAmount || 0
-        },
-        recentPayments: recentPayments.payments
-      }
+      data: earningsSummary
     });
   } catch (error) {
     console.error('Rider earnings error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to retrieve earnings data',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @route GET /api/payments/rider/earnings/history
+ * @desc Get detailed rider earnings history
+ * @access Private (Rider only)
+ */
+router.get('/rider/earnings/history', auth, async (req, res) => {
+  try {
+    // Verify user is rider
+    if (req.user.role !== 'rider') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only riders can access earnings data'
+      });
+    }
+
+    const {
+      startDate,
+      endDate,
+      status,
+      page = 1,
+      limit = 20,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const filters = {
+      startDate,
+      endDate,
+      status,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      sortBy,
+      sortOrder
+    };
+
+    const earningsHistory = await earningsService.getRiderEarningsHistory(req.user.id, filters);
+
+    res.json({
+      success: true,
+      data: earningsHistory
+    });
+  } catch (error) {
+    console.error('Rider earnings history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve earnings history',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @route GET /api/payments/rider/earnings/breakdown
+ * @desc Get rider earnings breakdown by time period
+ * @access Private (Rider only)
+ */
+router.get('/rider/earnings/breakdown', auth, async (req, res) => {
+  try {
+    // Verify user is rider
+    if (req.user.role !== 'rider') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only riders can access earnings data'
+      });
+    }
+
+    const {
+      period = 'monthly',
+      startDate,
+      endDate,
+      limit = 12
+    } = req.query;
+
+    const options = {
+      startDate,
+      endDate,
+      limit: parseInt(limit)
+    };
+
+    const breakdown = await earningsService.getEarningsBreakdown(req.user.id, period, options);
+
+    res.json({
+      success: true,
+      data: {
+        period,
+        breakdown
+      }
+    });
+  } catch (error) {
+    console.error('Rider earnings breakdown error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve earnings breakdown',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @route GET /api/payments/rider/performance
+ * @desc Get rider performance metrics
+ * @access Private (Rider only)
+ */
+router.get('/rider/performance', auth, async (req, res) => {
+  try {
+    // Verify user is rider
+    if (req.user.role !== 'rider') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only riders can access performance data'
+      });
+    }
+
+    const performanceMetrics = await earningsService.getRiderPerformanceMetrics(req.user.id);
+
+    res.json({
+      success: true,
+      data: performanceMetrics
+    });
+  } catch (error) {
+    console.error('Rider performance metrics error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve performance metrics',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
