@@ -254,10 +254,15 @@
 
 
 
+
+
+
 - [ ] 11.2 Add Redis caching for frequently accessed data
   - Implement caching for user profiles and offer data
   - Add cache invalidation strategies for data updates
   - Write tests for caching functionality
+
+
   - _Requirements: Performance optimization for all requirements_
 
 - [ ] 12. Create Role-Specific Dashboard APIs

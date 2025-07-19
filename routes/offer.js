@@ -5,6 +5,8 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Notification = require('../models/Notification');
 const LocationService = require('../services/LocationService');
+const { cacheStrategies } = require('../services/CacheStrategies');
+const { cacheMiddleware } = require('../middleware/cacheMiddleware');
 
 const router = express.Router();
 
@@ -21,7 +23,7 @@ function auth(req, res, next) {
 }
 
 // Business: Post offer (enhanced)
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, cacheMiddleware.invalidateOffers, async (req, res) => {
   if (req.user.role !== 'business') {
     return res.status(403).json({ message: 'Only businesses can post offers' });
   }
@@ -136,6 +138,10 @@ router.post('/', auth, async (req, res) => {
 
     await offer.save();
 
+    // Invalidate related caches after creating new offer
+    await cacheStrategies.invalidateBusinessOffers(req.user.id);
+    await cacheStrategies.cache.clearPattern('offers:nearby:*');
+
     res.status(201).json({
       message: 'Offer created successfully',
       offer: offer.getSummary(),
@@ -151,7 +157,7 @@ router.post('/', auth, async (req, res) => {
 });
 
 // Rider: Get offers near location with enhanced filtering and sorting
-router.get('/nearby', auth, async (req, res) => {
+router.get('/nearby', auth, cacheMiddleware.nearbyOffers, async (req, res) => {
   if (req.user.role !== 'rider') return res.status(403).json({ message: 'Only riders can view offers' });
   
   const { 
@@ -187,6 +193,25 @@ router.get('/nearby', auth, async (req, res) => {
   }
 
   try {
+    // Create filters object for caching
+    const filters = {
+      minDistance, minPayment, maxPayment, packageType, vehicleType,
+      sortBy, sortOrder, limit, page, fragile, maxWeight, maxDimensions,
+      availableFrom, availableUntil, deliverBy, paymentMethod, businessId,
+      createdAfter, createdBefore
+    };
+
+    // Try to get from cache first
+    const cachedOffers = await cacheStrategies.getNearbyOffers(
+      parseFloat(lat), 
+      parseFloat(lng), 
+      parseInt(maxDistance), 
+      filters
+    );
+
+    if (cachedOffers) {
+      return res.json(cachedOffers);
+    }
     const coordinates = [parseFloat(lng), parseFloat(lat)];
     const radiusInMeters = parseInt(maxDistance);
     const minRadiusInMeters = parseInt(minDistance);
@@ -443,7 +468,7 @@ router.post('/:id/accept', auth, async (req, res) => {
 });
 
 // Business: Get own offers with filtering and sorting
-router.get('/my-offers', auth, async (req, res) => {
+router.get('/my-offers', auth, cacheMiddleware.userOffers, async (req, res) => {
   if (req.user.role !== 'business') {
     return res.status(403).json({ message: 'Only businesses can view their offers' });
   }
@@ -461,6 +486,13 @@ router.get('/my-offers', auth, async (req, res) => {
   } = req.query;
 
   try {
+    // Try to get from cache first (only for simple queries without date filters)
+    if (!dateFrom && !dateTo && page === '1') {
+      const cachedOffers = await cacheStrategies.getBusinessOffers(req.user.id, status);
+      if (cachedOffers) {
+        return res.json(cachedOffers);
+      }
+    }
     const limitNum = Math.min(parseInt(limit), 200);
     const skip = (parseInt(page) - 1) * limitNum;
 

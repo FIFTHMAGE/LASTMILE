@@ -4,13 +4,14 @@ const { check, validationResult } = require('express-validator');
 const EarningsService = require('../services/EarningsService');
 const Earnings = require('../models/Earnings');
 const { auth, requireRole } = require('../middleware/auth');
+const { cacheMiddleware } = require('../middleware/cacheMiddleware');
 
 /**
  * @route    GET /api/earnings/dashboard
  * @desc     Get rider's earnings dashboard
  * @access   Private (Rider only)
  */
-router.get('/dashboard', auth, requireRole('rider'), async (req, res) => {
+router.get('/dashboard', auth, requireRole('rider'), cacheMiddleware.earnings, async (req, res) => {
   try {
     const { period = 'month' } = req.query;
     
@@ -32,7 +33,7 @@ router.get('/dashboard', auth, requireRole('rider'), async (req, res) => {
  * @desc     Get rider's earnings summary
  * @access   Private (Rider only)
  */
-router.get('/summary', auth, requireRole('rider'), async (req, res) => {
+router.get('/summary', auth, requireRole('rider'), cacheMiddleware.earnings, async (req, res) => {
   try {
     const { period, startDate, endDate, paymentStatus } = req.query;
     

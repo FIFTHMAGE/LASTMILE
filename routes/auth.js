@@ -10,6 +10,7 @@ const {
   generateToken, 
   authRateLimit 
 } = require('../middleware/auth');
+const { cacheStrategies } = require('../services/CacheStrategies');
 
 const router = express.Router();
 
@@ -214,7 +215,24 @@ router.post('/login', authRateLimit(5, 15 * 60 * 1000), async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    // Try to get user from cache first
+    let user = await cacheStrategies.getUserAuth(email);
+    if (!user) {
+      // If not in cache, get from database
+      user = await User.findOne({ email });
+      if (user) {
+        // Cache the user auth data for future logins
+        await cacheStrategies.setUserAuth(email, {
+          _id: user._id,
+          email: user.email,
+          password: user.password,
+          role: user.role,
+          isVerified: user.isVerified,
+          name: user.name
+        });
+      }
+    }
+    
     if (!user) {
       return res.status(400).json({ 
         message: 'Invalid credentials',

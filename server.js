@@ -5,11 +5,18 @@ const cors = require('cors');
 const { ErrorHandler } = require('./middleware/errorHandler');
 const { sanitizeInput } = require('./middleware/validation');
 const RateLimiter = require('./middleware/rateLimiter');
+const CompressionMiddleware = require('./middleware/compression');
+const { cacheStrategies } = require('./services/CacheStrategies');
+const { warmCache } = require('./middleware/cacheMiddleware');
 
 const app = express();
 
 // Security and parsing middleware
 app.use(cors());
+
+// Response compression
+app.use(CompressionMiddleware.api());
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -34,18 +41,26 @@ if (process.env.NODE_ENV !== 'test') {
   .catch((err) => console.error('MongoDB connection error:', err));
 }
 
+// Initialize Redis cache connection
+if (process.env.NODE_ENV !== 'test') {
+  cacheStrategies.cache.connect()
+    .then(() => console.log('Redis cache connected'))
+    .catch((err) => console.error('Redis connection error:', err));
+}
+
 const authRoutes = require('./routes/auth');
 const offerRoutes = require('./routes/offer');
 const notificationRoutes = require('./routes/notification');
 const earningsRoutes = require('./routes/earnings');
 const deliveryRoutes = require('./routes/delivery');
 const adminRoutes = require('./routes/admin');
+const businessDashboardRoutes = require('./routes/businessDashboard');
 
 app.use('/api/auth', authRoutes);
-app.use('/api/offers', offerRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/earnings', earningsRoutes);
-app.use('/api/delivery', deliveryRoutes);
+app.use('/api/offers', warmCache, offerRoutes);
+app.use('/api/notifications', warmCache, notificationRoutes);
+app.use('/api/earnings', warmCache, earningsRoutes);
+app.use('/api/delivery', warmCache, deliveryRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/', (req, res) => {
