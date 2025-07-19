@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Offer = require('../models/Offer');
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
@@ -149,7 +150,7 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// Rider: Get offers near location with filtering and sorting
+// Rider: Get offers near location with enhanced filtering and sorting
 router.get('/nearby', auth, async (req, res) => {
   if (req.user.role !== 'rider') return res.status(403).json({ message: 'Only riders can view offers' });
   
@@ -157,60 +158,188 @@ router.get('/nearby', auth, async (req, res) => {
     lng, 
     lat, 
     maxDistance = 10000,
+    minDistance = 0,
     minPayment,
     maxPayment,
     packageType,
     vehicleType,
     sortBy = 'distance',
+    sortOrder = 'asc',
     limit = 50,
-    page = 1
+    page = 1,
+    fragile,
+    maxWeight,
+    maxDimensions,
+    availableFrom,
+    availableUntil,
+    deliverBy,
+    paymentMethod,
+    businessId,
+    createdAfter,
+    createdBefore
   } = req.query;
   
   if (!lng || !lat) {
     return res.status(400).json({ 
       message: 'Longitude and latitude are required',
-      example: '/api/offers/nearby?lng=-74.006&lat=40.7128'
+      example: '/api/offers/nearby?lng=-74.006&lat=40.7128&maxDistance=5000&minPayment=10&sortBy=payment'
     });
   }
 
   try {
     const coordinates = [parseFloat(lng), parseFloat(lat)];
     const radiusInMeters = parseInt(maxDistance);
+    const minRadiusInMeters = parseInt(minDistance);
     const limitNum = Math.min(parseInt(limit), 200); // Max 200 results
     const skip = (parseInt(page) - 1) * limitNum;
 
-    // Build filters object
-    const filters = {
-      sortBy,
-      limit: limitNum
-    };
-
-    if (minPayment) filters.minPayment = parseFloat(minPayment);
-    if (maxPayment) filters.maxPayment = parseFloat(maxPayment);
-    if (packageType) filters.packageType = packageType;
-    if (vehicleType) filters.vehicleType = vehicleType;
-
-    // Use the enhanced geospatial query method
-    let offers = await Offer.findWithinRadius(coordinates, radiusInMeters, filters);
-
-    // Apply pagination if needed
-    if (skip > 0) {
-      offers = offers.slice(skip);
-    }
-
-    // Get total count for pagination info
-    const totalOffers = await Offer.countDocuments({
-      status: 'open',
-      'pickup.coordinates': {
-        $near: {
-          $geometry: { type: 'Point', coordinates: coordinates },
-          $maxDistance: radiusInMeters
+    // Build comprehensive aggregation pipeline
+    const pipeline = [
+      // Geospatial matching
+      {
+        $geoNear: {
+          near: {
+            type: 'Point',
+            coordinates: coordinates
+          },
+          distanceField: 'distanceFromRider',
+          maxDistance: radiusInMeters,
+          minDistance: minRadiusInMeters,
+          spherical: true,
+          query: { status: 'open' }
+        }
+      },
+      // Lookup business information
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'business',
+          foreignField: '_id',
+          as: 'businessInfo'
+        }
+      },
+      // Add calculated fields
+      {
+        $addFields: {
+          businessInfo: { $arrayElemAt: ['$businessInfo', 0] },
+          packageVolume: {
+            $multiply: [
+              { $ifNull: ['$packageDetails.dimensions.length', 0] },
+              { $ifNull: ['$packageDetails.dimensions.width', 0] },
+              { $ifNull: ['$packageDetails.dimensions.height', 0] }
+            ]
+          }
         }
       }
-    });
+    ];
+
+    // Add filtering stages
+    const matchConditions = {};
+
+    // Payment filters
+    if (minPayment) matchConditions['payment.amount'] = { $gte: parseFloat(minPayment) };
+    if (maxPayment) matchConditions['payment.amount'] = { ...matchConditions['payment.amount'], $lte: parseFloat(maxPayment) };
+    if (paymentMethod) matchConditions['payment.paymentMethod'] = paymentMethod;
+
+    // Package filters
+    if (fragile !== undefined) matchConditions['packageDetails.fragile'] = fragile === 'true';
+    if (maxWeight) matchConditions['packageDetails.weight'] = { $lte: parseFloat(maxWeight) };
+    
+    // Vehicle compatibility filter
+    if (vehicleType) {
+      const vehicleConstraints = getVehicleConstraints(vehicleType);
+      if (vehicleConstraints.maxWeight) {
+        matchConditions['packageDetails.weight'] = { 
+          ...matchConditions['packageDetails.weight'], 
+          $lte: vehicleConstraints.maxWeight 
+        };
+      }
+      if (vehicleConstraints.maxVolume) {
+        matchConditions.packageVolume = { $lte: vehicleConstraints.maxVolume };
+      }
+    }
+
+    // Dimension filters
+    if (maxDimensions) {
+      const [maxL, maxW, maxH] = maxDimensions.split(',').map(d => parseFloat(d));
+      if (maxL) matchConditions['packageDetails.dimensions.length'] = { $lte: maxL };
+      if (maxW) matchConditions['packageDetails.dimensions.width'] = { $lte: maxW };
+      if (maxH) matchConditions['packageDetails.dimensions.height'] = { $lte: maxH };
+    }
+
+    // Time filters
+    if (availableFrom) matchConditions['pickup.availableFrom'] = { $gte: new Date(availableFrom) };
+    if (availableUntil) matchConditions['pickup.availableUntil'] = { $lte: new Date(availableUntil) };
+    if (deliverBy) matchConditions['delivery.deliverBy'] = { $lte: new Date(deliverBy) };
+
+    // Business filter
+    if (businessId) matchConditions.business = new mongoose.Types.ObjectId(businessId);
+
+    // Creation date filters
+    if (createdAfter) matchConditions.createdAt = { $gte: new Date(createdAfter) };
+    if (createdBefore) matchConditions.createdAt = { ...matchConditions.createdAt, $lte: new Date(createdBefore) };
+
+    // Add match stage if we have conditions
+    if (Object.keys(matchConditions).length > 0) {
+      pipeline.push({ $match: matchConditions });
+    }
+
+    // Add sorting
+    const sortStage = {};
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+    
+    switch (sortBy) {
+      case 'distance':
+        sortStage.distanceFromRider = sortDirection;
+        break;
+      case 'payment':
+        sortStage['payment.amount'] = sortDirection;
+        break;
+      case 'created':
+        sortStage.createdAt = sortDirection;
+        break;
+      case 'weight':
+        sortStage['packageDetails.weight'] = sortDirection;
+        break;
+      case 'deliverBy':
+        sortStage['delivery.deliverBy'] = sortDirection;
+        break;
+      case 'estimatedDuration':
+        sortStage.estimatedDuration = sortDirection;
+        break;
+      default:
+        sortStage.distanceFromRider = 1; // Default to distance ascending
+    }
+    pipeline.push({ $sort: sortStage });
+
+    // Add pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limitNum });
+
+    // Execute aggregation
+    const offers = await Offer.aggregate(pipeline);
+
+    // Get total count for pagination (run same pipeline without skip/limit)
+    const countPipeline = pipeline.slice(0, -2); // Remove skip and limit
+    countPipeline.push({ $count: 'total' });
+    const countResult = await Offer.aggregate(countPipeline);
+    const totalOffers = countResult.length > 0 ? countResult[0].total : 0;
+
+    // Format response
+    const formattedOffers = offers.map(offer => ({
+      ...offer,
+      id: offer._id,
+      distanceFromRider: Math.round(offer.distanceFromRider),
+      business: {
+        id: offer.businessInfo._id,
+        name: offer.businessInfo.name,
+        businessName: offer.businessInfo.profile?.businessName,
+        businessPhone: offer.businessInfo.profile?.businessPhone
+      }
+    }));
 
     const response = {
-      offers,
+      offers: formattedOffers,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(totalOffers / limitNum),
@@ -221,11 +350,30 @@ router.get('/nearby', auth, async (req, res) => {
       filters: {
         location: { lng: parseFloat(lng), lat: parseFloat(lat) },
         maxDistance: radiusInMeters,
-        minPayment: filters.minPayment,
-        maxPayment: filters.maxPayment,
-        packageType: filters.packageType,
-        vehicleType: filters.vehicleType,
-        sortBy: filters.sortBy
+        minDistance: minRadiusInMeters,
+        minPayment: minPayment ? parseFloat(minPayment) : undefined,
+        maxPayment: maxPayment ? parseFloat(maxPayment) : undefined,
+        packageType,
+        vehicleType,
+        fragile: fragile !== undefined ? fragile === 'true' : undefined,
+        maxWeight: maxWeight ? parseFloat(maxWeight) : undefined,
+        maxDimensions,
+        paymentMethod,
+        businessId,
+        sortBy,
+        sortOrder,
+        availableFrom,
+        availableUntil,
+        deliverBy,
+        createdAfter,
+        createdBefore
+      },
+      availableFilters: {
+        sortOptions: ['distance', 'payment', 'created', 'weight', 'deliverBy', 'estimatedDuration'],
+        sortOrders: ['asc', 'desc'],
+        paymentMethods: ['cash', 'card', 'digital'],
+        vehicleTypes: ['bike', 'scooter', 'car', 'van'],
+        packageTypes: ['fragile', 'regular']
       }
     };
 
@@ -235,6 +383,17 @@ router.get('/nearby', auth, async (req, res) => {
     res.status(500).json({ message: 'Server error fetching nearby offers' });
   }
 });
+
+// Helper function to get vehicle constraints
+function getVehicleConstraints(vehicleType) {
+  const constraints = {
+    bike: { maxWeight: 5, maxVolume: 50000 }, // 5kg, 50L (50x50x20cm)
+    scooter: { maxWeight: 15, maxVolume: 150000 }, // 15kg, 150L
+    car: { maxWeight: 50, maxVolume: 500000 }, // 50kg, 500L
+    van: { maxWeight: 200, maxVolume: 2000000 } // 200kg, 2000L
+  };
+  return constraints[vehicleType] || constraints.bike;
+}
 
 // Rider: Accept offer (enhanced with status workflow)
 router.post('/:id/accept', auth, async (req, res) => {

@@ -14,7 +14,8 @@
 
   - _Requirements: 1.1, 2.1_
 
-- [ ] 1.2 Create separate registration flows for businesses and riders
+- [x] 1.2 Create separate registration flows for businesses and riders
+
   - Implement business registration endpoint with business-specific validation
 
 
@@ -23,7 +24,11 @@
   - _Requirements: 1.2, 2.2_
 
 
-- [ ] 1.3 Implement role-specific login and dashboard routing
+
+- [x] 1.3 Implement role-specific login and dashboard routing
+
+
+
   - Create separate login responses that include role-specific dashboard data
   - Add middleware to route users to appropriate dashboards based on role
   - Implement role-specific JWT token claims and validation
@@ -52,6 +57,10 @@
 
   - _Requirements: 3.4, 4.1, 4.2_
 
+
+
+
+
 - [ ] 2.3 Implement offer filtering and sorting functionality
   - Add query parameters for distance, payment amount, and package type filters
 
@@ -62,6 +71,7 @@
   - Create unit tests for filtering and sorting logic
 
   - _Requirements: 4.3, 4.4_
+
 
 - [ ] 3. Create Location Services
 - [ ] 3.1 Implement geocoding service integration
@@ -83,7 +93,8 @@
 
 
 - [ ] 4. Enhance Offer Status Management
-- [-] 4.1 Implement detailed offer status workflow
+- [x] 4.1 Implement detailed offer status workflow
+
 
   - Extend offer status enum to include picked_up, in_transit, delivered states
   - Create status transition validation logic
@@ -127,6 +138,7 @@
 
 
 
+
   - Implement Payment schema with transaction tracking
   - Create basic payment processing endpoints
   - Add unit tests for payment model validation
@@ -139,9 +151,15 @@
   - Create earnings calculation utilities
 
 
+
+
   - Add rider earnings history endpoints
   - Write unit tests for earnings calculations
+
+
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
+
+
 
 - [ ] 7. Create Delivery Tracking System
 - [ ] 7.1 Implement DeliveryTracking model

@@ -3,6 +3,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const LocationTracking = require('../models/LocationTracking');
+const { 
+  auth, 
+  requireRole, 
+  dashboardRouter, 
+  generateToken, 
+  authRateLimit 
+} = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -194,28 +201,42 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Login with role-specific dashboard data
-router.post('/login', async (req, res) => {
+// Login with enhanced role-specific dashboard data and rate limiting
+router.post('/login', authRateLimit(5, 15 * 60 * 1000), async (req, res) => {
   try {
     const { email, password } = req.body;
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ 
+        message: 'Email and password are required',
+        error: 'MISSING_CREDENTIALS'
+      });
+    }
+
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+    if (!user) {
+      return res.status(400).json({ 
+        message: 'Invalid credentials',
+        error: 'INVALID_CREDENTIALS'
+      });
+    }
     
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(400).json({ message: 'Invalid credentials' });
+    if (!match) {
+      return res.status(400).json({ 
+        message: 'Invalid credentials',
+        error: 'INVALID_CREDENTIALS'
+      });
+    }
     
-    // Create JWT token with role-specific claims
-    const tokenPayload = { 
-      id: user._id, 
-      role: user.role,
-      isVerified: user.isVerified
-    };
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
+    // Generate enhanced JWT token with role-specific claims
+    const token = generateToken(user);
     
     // Get role-specific profile data
     const profileData = user.getProfileData();
     
-    // Role-specific dashboard routing information
+    // Enhanced role-specific dashboard routing information
     const dashboardInfo = {
       business: {
         defaultRoute: '/business/dashboard',
@@ -223,8 +244,23 @@ router.post('/login', async (req, res) => {
           '/business/dashboard',
           '/business/offers',
           '/business/offers/create',
+          '/business/offers/:id',
           '/business/payments',
-          '/business/profile'
+          '/business/profile',
+          '/business/notifications'
+        ],
+        permissions: {
+          canCreateOffers: true,
+          canViewOwnOffers: true,
+          canTrackDeliveries: true,
+          canMakePayments: true,
+          canViewPaymentHistory: true
+        },
+        quickActions: [
+          { label: 'Post New Offer', route: '/business/offers/create', icon: 'plus' },
+          { label: 'View Active Offers', route: '/business/offers', icon: 'list' },
+          { label: 'Payment History', route: '/business/payments', icon: 'credit-card' },
+          { label: 'Update Profile', route: '/business/profile', icon: 'user' }
         ]
       },
       rider: {
@@ -234,55 +270,70 @@ router.post('/login', async (req, res) => {
           '/rider/offers',
           '/rider/deliveries',
           '/rider/earnings',
-          '/rider/profile'
+          '/rider/profile',
+          '/rider/notifications',
+          '/rider/tracking'
+        ],
+        permissions: {
+          canViewOffers: true,
+          canAcceptOffers: true,
+          canUpdateDeliveryStatus: true,
+          canUpdateLocation: true,
+          canViewEarnings: true
+        },
+        quickActions: [
+          { label: 'Find Offers', route: '/rider/offers', icon: 'search' },
+          { label: 'View Deliveries', route: '/rider/deliveries', icon: 'truck' },
+          { label: 'Check Earnings', route: '/rider/earnings', icon: 'dollar-sign' },
+          { label: 'Update Availability', route: '/rider/profile', icon: 'toggle-on' }
+        ]
+      }
+    };
+    
+    // Role-specific welcome message and next steps
+    const welcomeData = {
+      business: {
+        message: `Welcome back, ${user.name}! Ready to manage your deliveries?`,
+        nextSteps: [
+          'Check your active offers',
+          'Review recent delivery updates',
+          'Post new delivery requests'
+        ]
+      },
+      rider: {
+        message: `Welcome back, ${user.name}! Ready to start earning?`,
+        nextSteps: [
+          'Update your availability status',
+          'Check nearby delivery offers',
+          'Review your recent earnings'
         ]
       }
     };
     
     res.json({ 
+      success: true,
       token,
       user: profileData,
       dashboard: dashboardInfo[user.role],
-      message: `Welcome back, ${user.name}!`
+      welcome: welcomeData[user.role],
+      loginTime: new Date().toISOString(),
+      sessionInfo: {
+        expiresIn: '7 days',
+        tokenType: 'Bearer',
+        refreshAvailable: true
+      }
     });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ message: 'Server error during login' });
+    res.status(500).json({ 
+      message: 'Server error during login',
+      error: 'LOGIN_SERVER_ERROR'
+    });
   }
 });
 
-// Auth middleware for protected routes
-function auth(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ message: 'Access denied. No token provided.' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
-
-// Role-specific middleware
-function requireRole(role) {
-  return (req, res, next) => {
-    if (req.user.role !== role) {
-      return res.status(403).json({ 
-        message: `Access denied. ${role} role required.`,
-        userRole: req.user.role,
-        requiredRole: role
-      });
-    }
-    next();
-  };
-}
-
-// Business dashboard data endpoint
-router.get('/dashboard/business', auth, requireRole('business'), async (req, res) => {
+// Enhanced Business dashboard data endpoint with role-specific routing
+router.get('/dashboard/business', auth, requireRole('business'), dashboardRouter, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) {
@@ -314,8 +365,8 @@ router.get('/dashboard/business', auth, requireRole('business'), async (req, res
   }
 });
 
-// Rider dashboard data endpoint
-router.get('/dashboard/rider', auth, requireRole('rider'), async (req, res) => {
+// Enhanced Rider dashboard data endpoint with role-specific routing
+router.get('/dashboard/rider', auth, requireRole('rider'), dashboardRouter, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) {
@@ -666,8 +717,96 @@ router.get('/rider/tracking/distance/:offerId', auth, requireRole('rider'), asyn
   }
 });
 
-// Export middleware for use in other routes
-router.auth = auth;
-router.requireRole = requireRole;
+// Token refresh endpoint
+router.post('/refresh-token', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(400).json({
+        message: 'Refresh token is required',
+        error: 'MISSING_REFRESH_TOKEN'
+      });
+    }
+
+    // For now, we'll use the same secret. In production, use a separate refresh secret
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    
+    // Get user and generate new access token
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(401).json({
+        message: 'Invalid refresh token - user not found',
+        error: 'INVALID_REFRESH_TOKEN'
+      });
+    }
+
+    // Generate new access token
+    const newAccessToken = generateToken(user);
+    
+    res.json({
+      success: true,
+      token: newAccessToken,
+      tokenType: 'Bearer',
+      expiresIn: '7 days',
+      refreshedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        message: 'Refresh token has expired. Please login again.',
+        error: 'REFRESH_TOKEN_EXPIRED'
+      });
+    }
+    
+    return res.status(401).json({
+      message: 'Invalid refresh token',
+      error: 'INVALID_REFRESH_TOKEN'
+    });
+  }
+});
+
+// Role-specific route validation endpoint
+router.get('/validate-route', auth, dashboardRouter, (req, res) => {
+  res.json({
+    success: true,
+    user: {
+      id: req.user.id,
+      role: req.user.role,
+      isVerified: req.user.isVerified
+    },
+    route: req.path,
+    permissions: req.permissions,
+    dashboardInfo: req.dashboardInfo,
+    message: 'Route access validated successfully'
+  });
+});
+
+// Get user permissions endpoint
+router.get('/permissions', auth, (req, res) => {
+  const { getRolePermissions } = require('../middleware/auth');
+  
+  res.json({
+    success: true,
+    user: {
+      id: req.user.id,
+      role: req.user.role,
+      isVerified: req.user.isVerified
+    },
+    permissions: getRolePermissions(req.user.role),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Logout endpoint (for token blacklisting in future)
+router.post('/logout', auth, (req, res) => {
+  // In a production environment, you would add the token to a blacklist
+  // For now, we'll just return a success response
+  res.json({
+    success: true,
+    message: 'Logged out successfully',
+    timestamp: new Date().toISOString()
+  });
+});
 
 module.exports = router; 

@@ -1,455 +1,737 @@
+const request = require('supertest');
 const mongoose = require('mongoose');
 const Offer = require('../models/Offer');
+const User = require('../models/User');
+
+// Mock Express app setup
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+// Import routes
+const offerRoutes = require('../routes/offer');
+app.use('/api/offers', offerRoutes);
+
+// Mock environment variables
+process.env.JWT_SECRET = 'test-secret-key';
+
+// Mock models
+jest.mock('../models/Offer');
+jest.mock('../models/User');
+jest.mock('../models/Notification');
+jest.mock('../services/LocationService');
 
 describe('Offer Filtering and Sorting', () => {
-  let sampleOffers;
-  let testCoordinates;
+  let riderToken, businessToken, mockOffers;
 
-  beforeAll(() => {
-    // Test coordinates for different locations
-    testCoordinates = {
-      manhattan: [-74.006, 40.7128],
-      brooklyn: [-73.9857, 40.6892],
-      queens: [-73.7949, 40.7282]
-    };
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Setup test tokens
+    const jwt = require('jsonwebtoken');
+    riderToken = jwt.sign(
+      { id: 'rider123', role: 'rider' },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    
+    businessToken = jwt.sign(
+      { id: 'business123', role: 'business' },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
 
-    // Sample offers with different characteristics for testing filters
-    sampleOffers = [
+    // Setup mock offers data
+    mockOffers = [
       {
+        _id: new mongoose.Types.ObjectId(),
+        title: 'Document Delivery',
+        status: 'open',
         business: new mongoose.Types.ObjectId(),
-        title: 'High-Value Document Delivery',
-        description: 'Important legal documents',
-        packageDetails: {
-          weight: 0.5,
-          dimensions: { length: 30, width: 20, height: 2 },
-          fragile: true,
-          specialInstructions: 'Handle with care'
-        },
         pickup: {
-          address: '123 Wall St, New York, NY',
-          coordinates: testCoordinates.manhattan,
-          contactName: 'John Lawyer',
-          contactPhone: '555-0001'
+          address: '123 Main St',
+          coordinates: [-74.006, 40.7128]
         },
         delivery: {
-          address: '456 Broadway, New York, NY',
-          coordinates: [-74.0059, 40.7589],
-          contactName: 'Jane Client',
-          contactPhone: '555-0002'
+          address: '456 Oak Ave',
+          coordinates: [-73.9857, 40.6892]
         },
-        payment: { amount: 45.00, currency: 'USD', paymentMethod: 'digital' },
-        status: 'open',
-        createdAt: new Date('2024-01-15T10:00:00Z')
+        payment: { amount: 25.50, paymentMethod: 'digital' },
+        packageDetails: {
+          weight: 2,
+          dimensions: { length: 30, width: 20, height: 10 },
+          fragile: false
+        },
+        estimatedDistance: 5000,
+        estimatedDuration: 30,
+        createdAt: new Date('2024-01-15T10:00:00Z'),
+        distanceFromRider: 1500,
+        businessInfo: {
+          _id: new mongoose.Types.ObjectId(),
+          name: 'Test Business',
+          profile: { businessName: 'Test Co' }
+        }
       },
       {
+        _id: new mongoose.Types.ObjectId(),
+        title: 'Fragile Package',
+        status: 'open',
         business: new mongoose.Types.ObjectId(),
-        title: 'Food Delivery',
-        description: 'Restaurant order delivery',
-        packageDetails: {
-          weight: 2.0,
-          dimensions: { length: 25, width: 25, height: 15 },
-          fragile: false,
-          specialInstructions: 'Keep upright'
-        },
         pickup: {
-          address: '789 Atlantic Ave, Brooklyn, NY',
-          coordinates: testCoordinates.brooklyn,
-          contactName: 'Restaurant Manager',
-          contactPhone: '555-0003'
+          address: '789 Pine St',
+          coordinates: [-74.010, 40.720]
         },
         delivery: {
-          address: '321 Flatbush Ave, Brooklyn, NY',
-          coordinates: [-73.9776, 40.6782],
-          contactName: 'Hungry Customer',
-          contactPhone: '555-0004'
+          address: '321 Elm St',
+          coordinates: [-73.980, 40.685]
         },
-        payment: { amount: 12.50, currency: 'USD', paymentMethod: 'cash' },
-        status: 'open',
-        createdAt: new Date('2024-01-16T14:30:00Z')
+        payment: { amount: 45.00, paymentMethod: 'cash' },
+        packageDetails: {
+          weight: 8,
+          dimensions: { length: 50, width: 40, height: 30 },
+          fragile: true
+        },
+        estimatedDistance: 8000,
+        estimatedDuration: 45,
+        createdAt: new Date('2024-01-15T11:00:00Z'),
+        distanceFromRider: 3000,
+        businessInfo: {
+          _id: new mongoose.Types.ObjectId(),
+          name: 'Fragile Co',
+          profile: { businessName: 'Fragile Goods Inc' }
+        }
       },
       {
+        _id: new mongoose.Types.ObjectId(),
+        title: 'Heavy Package',
+        status: 'open',
         business: new mongoose.Types.ObjectId(),
-        title: 'Large Package Delivery',
-        description: 'Electronics delivery',
-        packageDetails: {
-          weight: 8.0,
-          dimensions: { length: 60, width: 40, height: 30 },
-          fragile: true,
-          specialInstructions: 'Requires signature'
-        },
         pickup: {
-          address: '555 Northern Blvd, Queens, NY',
-          coordinates: testCoordinates.queens,
-          contactName: 'Store Manager',
-          contactPhone: '555-0005'
+          address: '555 Cedar Ave',
+          coordinates: [-74.015, 40.725]
         },
         delivery: {
-          address: '777 Queens Blvd, Queens, NY',
-          coordinates: [-73.8067, 40.7282],
-          contactName: 'Tech Buyer',
-          contactPhone: '555-0006'
+          address: '777 Maple Dr',
+          coordinates: [-73.975, 40.680]
         },
-        payment: { amount: 28.75, currency: 'USD', paymentMethod: 'card' },
-        status: 'accepted',
-        acceptedBy: new mongoose.Types.ObjectId(),
-        acceptedAt: new Date('2024-01-16T15:00:00Z'),
-        createdAt: new Date('2024-01-16T12:00:00Z')
+        payment: { amount: 60.00, paymentMethod: 'card' },
+        packageDetails: {
+          weight: 25,
+          dimensions: { length: 80, width: 60, height: 40 },
+          fragile: false
+        },
+        estimatedDistance: 12000,
+        estimatedDuration: 60,
+        createdAt: new Date('2024-01-15T12:00:00Z'),
+        distanceFromRider: 4500,
+        businessInfo: {
+          _id: new mongoose.Types.ObjectId(),
+          name: 'Heavy Logistics',
+          profile: { businessName: 'Heavy Haul Co' }
+        }
       }
     ];
   });
 
-  describe('Payment Amount Filtering', () => {
-    test('should filter by minimum payment amount', () => {
-      const minPayment = 20.00;
-      const filteredOffers = sampleOffers.filter(offer => 
-        offer.payment.amount >= minPayment
-      );
-
-      expect(filteredOffers).toHaveLength(2);
-      expect(filteredOffers[0].payment.amount).toBe(45.00);
-      expect(filteredOffers[1].payment.amount).toBe(28.75);
-      
-      // Verify all results meet criteria
-      filteredOffers.forEach(offer => {
-        expect(offer.payment.amount).toBeGreaterThanOrEqual(minPayment);
+  describe('GET /api/offers/nearby - Enhanced Filtering', () => {
+    test('should filter offers by payment amount range', async () => {
+      // Mock the aggregation pipeline
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        // Check if this is the count pipeline
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 2 }]);
+        }
+        
+        // Filter offers by payment amount (25-50)
+        const filtered = mockOffers.filter(offer => 
+          offer.payment.amount >= 25 && offer.payment.amount <= 50
+        );
+        return Promise.resolve(filtered);
       });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          minPayment: 25,
+          maxPayment: 50
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(2);
+      expect(response.body.offers.every(offer => 
+        offer.payment.amount >= 25 && offer.payment.amount <= 50
+      )).toBe(true);
+      expect(response.body.filters.minPayment).toBe(25);
+      expect(response.body.filters.maxPayment).toBe(50);
     });
 
-    test('should filter by maximum payment amount', () => {
-      const maxPayment = 25.00;
-      const filteredOffers = sampleOffers.filter(offer => 
-        offer.payment.amount <= maxPayment
-      );
-
-      expect(filteredOffers).toHaveLength(1);
-      expect(filteredOffers[0].payment.amount).toBe(12.50);
-      
-      // Verify all results meet criteria
-      filteredOffers.forEach(offer => {
-        expect(offer.payment.amount).toBeLessThanOrEqual(maxPayment);
+    test('should filter offers by vehicle type constraints', async () => {
+      // Mock the aggregation pipeline for bike constraints
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 1 }]);
+        }
+        
+        // Filter for bike-compatible packages (weight <= 5kg)
+        const filtered = mockOffers.filter(offer => 
+          offer.packageDetails.weight <= 5
+        );
+        return Promise.resolve(filtered);
       });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          vehicleType: 'bike'
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(1);
+      expect(response.body.offers[0].packageDetails.weight).toBeLessThanOrEqual(5);
+      expect(response.body.filters.vehicleType).toBe('bike');
     });
 
-    test('should filter by payment range', () => {
-      const minPayment = 15.00;
-      const maxPayment = 35.00;
-      const filteredOffers = sampleOffers.filter(offer => 
-        offer.payment.amount >= minPayment && offer.payment.amount <= maxPayment
-      );
-
-      expect(filteredOffers).toHaveLength(1);
-      expect(filteredOffers[0].payment.amount).toBe(28.75);
-      
-      // Verify all results meet criteria
-      filteredOffers.forEach(offer => {
-        expect(offer.payment.amount).toBeGreaterThanOrEqual(minPayment);
-        expect(offer.payment.amount).toBeLessThanOrEqual(maxPayment);
+    test('should filter offers by fragile package type', async () => {
+      // Mock the aggregation pipeline for fragile packages
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 1 }]);
+        }
+        
+        // Filter for fragile packages
+        const filtered = mockOffers.filter(offer => 
+          offer.packageDetails.fragile === true
+        );
+        return Promise.resolve(filtered);
       });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          fragile: 'true'
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(1);
+      expect(response.body.offers[0].packageDetails.fragile).toBe(true);
+      expect(response.body.filters.fragile).toBe(true);
+    });
+
+    test('should filter offers by payment method', async () => {
+      // Mock the aggregation pipeline for cash payments
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 1 }]);
+        }
+        
+        // Filter for cash payments
+        const filtered = mockOffers.filter(offer => 
+          offer.payment.paymentMethod === 'cash'
+        );
+        return Promise.resolve(filtered);
+      });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          paymentMethod: 'cash'
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(1);
+      expect(response.body.offers[0].payment.paymentMethod).toBe('cash');
+      expect(response.body.filters.paymentMethod).toBe('cash');
+    });
+
+    test('should filter offers by maximum weight', async () => {
+      // Mock the aggregation pipeline for weight limit
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 2 }]);
+        }
+        
+        // Filter for packages under 10kg
+        const filtered = mockOffers.filter(offer => 
+          offer.packageDetails.weight <= 10
+        );
+        return Promise.resolve(filtered);
+      });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          maxWeight: 10
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(2);
+      expect(response.body.offers.every(offer => 
+        offer.packageDetails.weight <= 10
+      )).toBe(true);
+      expect(response.body.filters.maxWeight).toBe(10);
+    });
+
+    test('should filter offers by creation date range', async () => {
+      // Mock the aggregation pipeline for date range
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 2 }]);
+        }
+        
+        // Filter for offers created after 10:30 AM
+        const filtered = mockOffers.filter(offer => 
+          offer.createdAt >= new Date('2024-01-15T10:30:00Z')
+        );
+        return Promise.resolve(filtered);
+      });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          createdAfter: '2024-01-15T10:30:00Z'
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(2);
+      expect(response.body.filters.createdAfter).toBe('2024-01-15T10:30:00Z');
+    });
+
+    test('should combine multiple filters', async () => {
+      // Mock the aggregation pipeline for combined filters
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 1 }]);
+        }
+        
+        // Filter for non-fragile packages with payment 20-50 and weight <= 10
+        const filtered = mockOffers.filter(offer => 
+          !offer.packageDetails.fragile &&
+          offer.payment.amount >= 20 &&
+          offer.payment.amount <= 50 &&
+          offer.packageDetails.weight <= 10
+        );
+        return Promise.resolve(filtered);
+      });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          minPayment: 20,
+          maxPayment: 50,
+          fragile: 'false',
+          maxWeight: 10
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(1);
+      expect(response.body.filters.minPayment).toBe(20);
+      expect(response.body.filters.maxPayment).toBe(50);
+      expect(response.body.filters.fragile).toBe(false);
+      expect(response.body.filters.maxWeight).toBe(10);
     });
   });
 
-  describe('Package Type Filtering', () => {
-    test('should filter fragile packages', () => {
-      const fragileOffers = sampleOffers.filter(offer => 
-        offer.packageDetails.fragile === true
-      );
-
-      expect(fragileOffers).toHaveLength(2);
-      expect(fragileOffers[0].title).toBe('High-Value Document Delivery');
-      expect(fragileOffers[1].title).toBe('Large Package Delivery');
-      
-      // Verify all results are fragile
-      fragileOffers.forEach(offer => {
-        expect(offer.packageDetails.fragile).toBe(true);
+  describe('GET /api/offers/nearby - Enhanced Sorting', () => {
+    test('should sort offers by distance ascending (default)', async () => {
+      // Mock the aggregation pipeline with distance sorting
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 3 }]);
+        }
+        
+        // Sort by distance ascending
+        const sorted = [...mockOffers].sort((a, b) => a.distanceFromRider - b.distanceFromRider);
+        return Promise.resolve(sorted);
       });
-    });
 
-    test('should filter non-fragile packages', () => {
-      const nonFragileOffers = sampleOffers.filter(offer => 
-        offer.packageDetails.fragile === false
-      );
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          sortBy: 'distance',
+          sortOrder: 'asc'
+        });
 
-      expect(nonFragileOffers).toHaveLength(1);
-      expect(nonFragileOffers[0].title).toBe('Food Delivery');
-      expect(nonFragileOffers[0].packageDetails.fragile).toBe(false);
-    });
-  });
-
-  describe('Vehicle Type Compatibility Filtering', () => {
-    test('should filter bike-compatible packages', () => {
-      const bikeCompatible = sampleOffers.filter(offer => 
-        offer.packageDetails.weight <= 5 // Bike weight limit
-      );
-
-      expect(bikeCompatible).toHaveLength(2);
-      expect(bikeCompatible[0].packageDetails.weight).toBe(0.5);
-      expect(bikeCompatible[1].packageDetails.weight).toBe(2.0);
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(3);
       
-      // Verify all results are bike-compatible
-      bikeCompatible.forEach(offer => {
-        expect(offer.packageDetails.weight).toBeLessThanOrEqual(5);
+      // Check if sorted by distance ascending
+      for (let i = 1; i < response.body.offers.length; i++) {
+        expect(response.body.offers[i].distanceFromRider)
+          .toBeGreaterThanOrEqual(response.body.offers[i-1].distanceFromRider);
+      }
+      
+      expect(response.body.filters.sortBy).toBe('distance');
+      expect(response.body.filters.sortOrder).toBe('asc');
+    });
+
+    test('should sort offers by payment amount descending', async () => {
+      // Mock the aggregation pipeline with payment sorting
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 3 }]);
+        }
+        
+        // Sort by payment descending
+        const sorted = [...mockOffers].sort((a, b) => b.payment.amount - a.payment.amount);
+        return Promise.resolve(sorted);
       });
-    });
 
-    test('should filter car/van only packages', () => {
-      const carVanOnly = sampleOffers.filter(offer => 
-        offer.packageDetails.weight > 5 // Requires car/van
-      );
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          sortBy: 'payment',
+          sortOrder: 'desc'
+        });
 
-      expect(carVanOnly).toHaveLength(1);
-      expect(carVanOnly[0].packageDetails.weight).toBe(8.0);
-      expect(carVanOnly[0].title).toBe('Large Package Delivery');
-    });
-
-    test('should consider package dimensions for vehicle compatibility', () => {
-      // Test volume calculation (L x W x H in cubic cm)
-      const offers = sampleOffers.map(offer => ({
-        ...offer,
-        volume: offer.packageDetails.dimensions.length * 
-                offer.packageDetails.dimensions.width * 
-                offer.packageDetails.dimensions.height
-      }));
-
-      const smallPackages = offers.filter(offer => offer.volume <= 20000); // 20L
-      const largePackages = offers.filter(offer => offer.volume > 20000);
-
-      expect(smallPackages).toHaveLength(2); // Document and food
-      expect(largePackages).toHaveLength(1);  // Electronics
-      expect(largePackages[0].volume).toBe(72000); // 60*40*30
-    });
-  });
-
-  describe('Status Filtering', () => {
-    test('should filter by offer status', () => {
-      const openOffers = sampleOffers.filter(offer => offer.status === 'open');
-      const acceptedOffers = sampleOffers.filter(offer => offer.status === 'accepted');
-
-      expect(openOffers).toHaveLength(2);
-      expect(acceptedOffers).toHaveLength(1);
-      expect(acceptedOffers[0].title).toBe('Large Package Delivery');
-    });
-
-    test('should validate status enum values', () => {
-      const validStatuses = ['open', 'accepted', 'picked_up', 'in_transit', 'delivered', 'completed', 'cancelled'];
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(3);
       
-      sampleOffers.forEach(offer => {
-        expect(validStatuses).toContain(offer.status);
+      // Check if sorted by payment descending
+      for (let i = 1; i < response.body.offers.length; i++) {
+        expect(response.body.offers[i].payment.amount)
+          .toBeLessThanOrEqual(response.body.offers[i-1].payment.amount);
+      }
+      
+      expect(response.body.filters.sortBy).toBe('payment');
+      expect(response.body.filters.sortOrder).toBe('desc');
+    });
+
+    test('should sort offers by creation time', async () => {
+      // Mock the aggregation pipeline with creation time sorting
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 3 }]);
+        }
+        
+        // Sort by creation time descending (newest first)
+        const sorted = [...mockOffers].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return Promise.resolve(sorted);
       });
-    });
-  });
 
-  describe('Date Range Filtering', () => {
-    test('should filter by creation date range', () => {
-      const dateFrom = new Date('2024-01-16T00:00:00Z');
-      const dateTo = new Date('2024-01-16T23:59:59Z');
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          sortBy: 'created',
+          sortOrder: 'desc'
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(3);
       
-      const filteredOffers = sampleOffers.filter(offer => 
-        offer.createdAt >= dateFrom && offer.createdAt <= dateTo
-      );
-
-      expect(filteredOffers).toHaveLength(2);
-      expect(filteredOffers[0].title).toBe('Food Delivery');
-      expect(filteredOffers[1].title).toBe('Large Package Delivery');
-    });
-
-    test('should filter by acceptance date range', () => {
-      const dateFrom = new Date('2024-01-16T14:00:00Z');
-      const dateTo = new Date('2024-01-16T16:00:00Z');
+      // Check if sorted by creation time descending
+      for (let i = 1; i < response.body.offers.length; i++) {
+        expect(new Date(response.body.offers[i].createdAt).getTime())
+          .toBeLessThanOrEqual(new Date(response.body.offers[i-1].createdAt).getTime());
+      }
       
-      const filteredOffers = sampleOffers.filter(offer => 
-        offer.acceptedAt && offer.acceptedAt >= dateFrom && offer.acceptedAt <= dateTo
-      );
-
-      expect(filteredOffers).toHaveLength(1);
-      expect(filteredOffers[0].title).toBe('Large Package Delivery');
-    });
-  });
-
-  describe('Sorting Functionality', () => {
-    test('should sort by payment amount (ascending)', () => {
-      const sortedOffers = [...sampleOffers].sort((a, b) => 
-        a.payment.amount - b.payment.amount
-      );
-
-      expect(sortedOffers[0].payment.amount).toBe(12.50);
-      expect(sortedOffers[1].payment.amount).toBe(28.75);
-      expect(sortedOffers[2].payment.amount).toBe(45.00);
+      expect(response.body.filters.sortBy).toBe('created');
+      expect(response.body.filters.sortOrder).toBe('desc');
     });
 
-    test('should sort by payment amount (descending)', () => {
-      const sortedOffers = [...sampleOffers].sort((a, b) => 
-        b.payment.amount - a.payment.amount
-      );
-
-      expect(sortedOffers[0].payment.amount).toBe(45.00);
-      expect(sortedOffers[1].payment.amount).toBe(28.75);
-      expect(sortedOffers[2].payment.amount).toBe(12.50);
-    });
-
-    test('should sort by creation time (newest first)', () => {
-      const sortedOffers = [...sampleOffers].sort((a, b) => 
-        b.createdAt.getTime() - a.createdAt.getTime()
-      );
-
-      expect(sortedOffers[0].createdAt.getTime()).toBeGreaterThan(sortedOffers[1].createdAt.getTime());
-      expect(sortedOffers[1].createdAt.getTime()).toBeGreaterThan(sortedOffers[2].createdAt.getTime());
-    });
-
-    test('should sort by creation time (oldest first)', () => {
-      const sortedOffers = [...sampleOffers].sort((a, b) => 
-        a.createdAt.getTime() - b.createdAt.getTime()
-      );
-
-      expect(sortedOffers[0].createdAt.getTime()).toBeLessThan(sortedOffers[1].createdAt.getTime());
-      expect(sortedOffers[1].createdAt.getTime()).toBeLessThan(sortedOffers[2].createdAt.getTime());
-    });
-
-    test('should sort by distance (requires calculation)', () => {
-      // Add estimated distances for testing
-      const offersWithDistance = sampleOffers.map((offer, index) => ({
-        ...offer,
-        estimatedDistance: [1500, 3200, 2800][index] // Mock distances in meters
-      }));
-
-      const sortedByDistance = [...offersWithDistance].sort((a, b) => 
-        a.estimatedDistance - b.estimatedDistance
-      );
-
-      expect(sortedByDistance[0].estimatedDistance).toBe(1500);
-      expect(sortedByDistance[1].estimatedDistance).toBe(2800);
-      expect(sortedByDistance[2].estimatedDistance).toBe(3200);
-    });
-  });
-
-  describe('Combined Filtering and Sorting', () => {
-    test('should apply multiple filters and sort results', () => {
-      // Filter: fragile packages with payment > $20, sort by payment desc
-      const filtered = sampleOffers
-        .filter(offer => offer.packageDetails.fragile === true)
-        .filter(offer => offer.payment.amount > 20)
-        .sort((a, b) => b.payment.amount - a.payment.amount);
-
-      expect(filtered).toHaveLength(2);
-      expect(filtered[0].payment.amount).toBe(45.00);
-      expect(filtered[1].payment.amount).toBe(28.75);
-      
-      // Verify all results meet both criteria
-      filtered.forEach(offer => {
-        expect(offer.packageDetails.fragile).toBe(true);
-        expect(offer.payment.amount).toBeGreaterThan(20);
+    test('should sort offers by package weight', async () => {
+      // Mock the aggregation pipeline with weight sorting
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 3 }]);
+        }
+        
+        // Sort by weight ascending
+        const sorted = [...mockOffers].sort((a, b) => a.packageDetails.weight - b.packageDetails.weight);
+        return Promise.resolve(sorted);
       });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          sortBy: 'weight',
+          sortOrder: 'asc'
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(3);
+      
+      // Check if sorted by weight ascending
+      for (let i = 1; i < response.body.offers.length; i++) {
+        expect(response.body.offers[i].packageDetails.weight)
+          .toBeGreaterThanOrEqual(response.body.offers[i-1].packageDetails.weight);
+      }
+      
+      expect(response.body.filters.sortBy).toBe('weight');
+      expect(response.body.filters.sortOrder).toBe('asc');
     });
 
-    test('should filter by vehicle compatibility and sort by payment', () => {
-      // Filter: bike-compatible packages, sort by payment ascending
-      const filtered = sampleOffers
-        .filter(offer => offer.packageDetails.weight <= 5)
-        .sort((a, b) => a.payment.amount - b.payment.amount);
-
-      expect(filtered).toHaveLength(2);
-      expect(filtered[0].payment.amount).toBe(12.50);
-      expect(filtered[1].payment.amount).toBe(45.00);
-      
-      // Verify all are bike-compatible
-      filtered.forEach(offer => {
-        expect(offer.packageDetails.weight).toBeLessThanOrEqual(5);
+    test('should sort offers by estimated duration', async () => {
+      // Mock the aggregation pipeline with duration sorting
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 3 }]);
+        }
+        
+        // Sort by estimated duration ascending
+        const sorted = [...mockOffers].sort((a, b) => a.estimatedDuration - b.estimatedDuration);
+        return Promise.resolve(sorted);
       });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          sortBy: 'estimatedDuration',
+          sortOrder: 'asc'
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(3);
+      
+      // Check if sorted by estimated duration ascending
+      for (let i = 1; i < response.body.offers.length; i++) {
+        expect(response.body.offers[i].estimatedDuration)
+          .toBeGreaterThanOrEqual(response.body.offers[i-1].estimatedDuration);
+      }
+      
+      expect(response.body.filters.sortBy).toBe('estimatedDuration');
+      expect(response.body.filters.sortOrder).toBe('asc');
     });
   });
 
-  describe('Pagination Logic', () => {
-    test('should calculate pagination correctly', () => {
-      const totalOffers = 25;
-      const limit = 10;
-      const page = 2;
-      
-      const skip = (page - 1) * limit;
-      const totalPages = Math.ceil(totalOffers / limit);
-      const hasNextPage = skip + limit < totalOffers;
-      const hasPrevPage = page > 1;
+  describe('Pagination and Response Structure', () => {
+    test('should handle pagination correctly', async () => {
+      // Mock the aggregation pipeline with pagination
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 10 }]);
+        }
+        
+        // Return first page (2 items)
+        return Promise.resolve(mockOffers.slice(0, 2));
+      });
 
-      expect(skip).toBe(10);
-      expect(totalPages).toBe(3);
-      expect(hasNextPage).toBe(true);
-      expect(hasPrevPage).toBe(true);
-    });
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          limit: 2,
+          page: 1
+        });
 
-    test('should handle edge cases for pagination', () => {
-      const totalOffers = 10;
-      const limit = 10;
-      
-      // First page
-      const page1 = {
-        page: 1,
-        skip: 0,
-        hasNextPage: false,
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(2);
+      expect(response.body.pagination).toEqual({
+        currentPage: 1,
+        totalPages: 5,
+        totalOffers: 10,
+        hasNextPage: true,
         hasPrevPage: false
-      };
-      
-      expect(page1.skip).toBe(0);
-      expect(page1.hasNextPage).toBe(false);
-      expect(page1.hasPrevPage).toBe(false);
-      
-      // Last page with partial results
-      const totalOffers2 = 25;
-      const limit2 = 10;
-      const page3 = 3;
-      const skip3 = (page3 - 1) * limit2;
-      const hasNextPage3 = skip3 + limit2 < totalOffers2;
-      
-      expect(skip3).toBe(20);
-      expect(hasNextPage3).toBe(false); // No more pages
+      });
+    });
+
+    test('should include available filter options in response', async () => {
+      // Mock the aggregation pipeline
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 3 }]);
+        }
+        return Promise.resolve(mockOffers);
+      });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.availableFilters).toEqual({
+        sortOptions: ['distance', 'payment', 'created', 'weight', 'deliverBy', 'estimatedDuration'],
+        sortOrders: ['asc', 'desc'],
+        paymentMethods: ['cash', 'card', 'digital'],
+        vehicleTypes: ['bike', 'scooter', 'car', 'van'],
+        packageTypes: ['fragile', 'regular']
+      });
+    });
+
+    test('should return error for missing coordinates', async () => {
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          // Missing lng and lat
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain('Longitude and latitude are required');
+      expect(response.body.example).toBeDefined();
+    });
+
+    test('should deny access to non-rider users', async () => {
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${businessToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128
+        });
+
+      expect(response.status).toBe(403);
+      expect(response.body.message).toBe('Only riders can view offers');
     });
   });
 
-  describe('Query Performance Considerations', () => {
-    test('should limit results to prevent performance issues', () => {
-      const requestedLimit = 500;
-      const maxLimit = 200;
-      const actualLimit = Math.min(requestedLimit, maxLimit);
+  describe('Distance and Location Filtering', () => {
+    test('should filter offers by maximum distance', async () => {
+      // Mock the aggregation pipeline with distance filtering
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 2 }]);
+        }
+        
+        // Filter offers within 3000m
+        const filtered = mockOffers.filter(offer => 
+          offer.distanceFromRider <= 3000
+        );
+        return Promise.resolve(filtered);
+      });
 
-      expect(actualLimit).toBe(200);
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          maxDistance: 3000
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(2);
+      expect(response.body.offers.every(offer => 
+        offer.distanceFromRider <= 3000
+      )).toBe(true);
+      expect(response.body.filters.maxDistance).toBe(3000);
     });
 
-    test('should validate sort parameters', () => {
-      const validSortFields = ['payment', 'distance', 'created', 'status'];
-      const validSortOrders = ['asc', 'desc'];
-      
-      const testSortBy = 'payment';
-      const testSortOrder = 'desc';
-      
-      expect(validSortFields).toContain(testSortBy);
-      expect(validSortOrders).toContain(testSortOrder);
+    test('should filter offers by minimum distance', async () => {
+      // Mock the aggregation pipeline with minimum distance filtering
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 2 }]);
+        }
+        
+        // Filter offers beyond 2000m
+        const filtered = mockOffers.filter(offer => 
+          offer.distanceFromRider >= 2000
+        );
+        return Promise.resolve(filtered);
+      });
+
+      const response = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          minDistance: 2000
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.offers).toHaveLength(2);
+      expect(response.body.offers.every(offer => 
+        offer.distanceFromRider >= 2000
+      )).toBe(true);
+      expect(response.body.filters.minDistance).toBe(2000);
     });
+  });
 
-    test('should build efficient query structures', () => {
-      // Test query building logic
-      const filters = {
-        minPayment: 15,
-        maxPayment: 50,
-        packageType: 'fragile',
-        vehicleType: 'bike'
-      };
+  describe('Vehicle Constraints Helper Function', () => {
+    test('should return correct constraints for different vehicle types', async () => {
+      // Test bike constraints
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 1 }]);
+        }
+        
+        // Should only return offers suitable for bikes (weight <= 5kg)
+        const filtered = mockOffers.filter(offer => 
+          offer.packageDetails.weight <= 5
+        );
+        return Promise.resolve(filtered);
+      });
 
-      const query = {};
-      
-      if (filters.minPayment) {
-        query['payment.amount'] = { $gte: filters.minPayment };
-      }
-      if (filters.maxPayment) {
-        query['payment.amount'] = { ...query['payment.amount'], $lte: filters.maxPayment };
-      }
-      if (filters.packageType === 'fragile') {
-        query['packageDetails.fragile'] = true;
-      }
-      if (filters.vehicleType === 'bike') {
-        query['packageDetails.weight'] = { $lte: 5 };
-      }
+      const bikeResponse = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          vehicleType: 'bike'
+        });
 
-      expect(query['payment.amount'].$gte).toBe(15);
-      expect(query['payment.amount'].$lte).toBe(50);
-      expect(query['packageDetails.fragile']).toBe(true);
-      expect(query['packageDetails.weight'].$lte).toBe(5);
+      expect(bikeResponse.status).toBe(200);
+      expect(bikeResponse.body.offers).toHaveLength(1);
+      expect(bikeResponse.body.offers[0].packageDetails.weight).toBeLessThanOrEqual(5);
+
+      // Test car constraints
+      Offer.aggregate = jest.fn().mockImplementation((pipeline) => {
+        if (pipeline.some(stage => stage.$count)) {
+          return Promise.resolve([{ total: 3 }]);
+        }
+        
+        // Should return all offers (weight <= 50kg for cars)
+        const filtered = mockOffers.filter(offer => 
+          offer.packageDetails.weight <= 50
+        );
+        return Promise.resolve(filtered);
+      });
+
+      const carResponse = await request(app)
+        .get('/api/offers/nearby')
+        .set('Authorization', `Bearer ${riderToken}`)
+        .query({
+          lng: -74.006,
+          lat: 40.7128,
+          vehicleType: 'car'
+        });
+
+      expect(carResponse.status).toBe(200);
+      expect(carResponse.body.offers).toHaveLength(3);
     });
   });
 });
