@@ -184,7 +184,7 @@ const RegisterPage = () => {
             Create your account
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Join Last Mile Delivery Platform
+            Join LastMile
           </p>
         </div>
 

@@ -79,7 +79,7 @@ const LoginPage = () => {
             Sign in to your account
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Welcome back to Last Mile Delivery Platform
+            Welcome back to LastMile
           </p>
         </div>
 
@@ -164,7 +164,7 @@ const LoginPage = () => {
                 <div className="w-full border-t border-gray-300" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">New to Last Mile Delivery?</span>
+                <span className="px-2 bg-white text-gray-500">New to LastMile?</span>
               </div>
             </div>
 

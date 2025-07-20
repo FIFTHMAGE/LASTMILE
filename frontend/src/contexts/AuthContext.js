@@ -85,7 +85,7 @@ export const AuthProvider = ({ children }) => {
       setToken(userToken);
       localStorage.setItem('token', userToken);
       
-      toast.success(`Welcome to Last Mile Delivery, ${newUser.name}!`);
+      toast.success(`Welcome to LastMile, ${newUser.name}!`);
       return newUser;
     } catch (error) {
       const message = error.response?.data?.error?.message || 'Registration failed';
