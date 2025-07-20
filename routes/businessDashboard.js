@@ -11,7 +11,7 @@ const Payment = require('../models/Payment');
 const Notification = require('../models/Notification');
 const { auth } = require('../middleware/auth');
 const { ErrorHandler } = require('../middleware/errorHandler');
-const { validateInput } = require('../middleware/validation');
+const { handleValidationErrors } = require('../middleware/validation');
 const { cacheStrategies } = require('../services/CacheStrategies');
 
 const router = express.Router();
@@ -465,7 +465,7 @@ router.get('/offers/:offerId', async (req, res) => {
 /**
  * Cancel an offer
  */
-router.patch('/offers/:offerId/cancel', validateInput, async (req, res) => {
+router.patch('/offers/:offerId/cancel', async (req, res) => {
   try {
     const businessId = req.user._id;
     const { offerId } = req.params;
@@ -1216,7 +1216,7 @@ function convertToCSV(data) {
 /**
  * Update business profile
  */
-router.patch('/profile', validateInput, async (req, res) => {
+router.patch('/profile', async (req, res) => {
   try {
     const businessId = req.user._id;
     const updates = req.body;

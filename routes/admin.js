@@ -6,7 +6,7 @@ const Payment = require('../models/Payment');
 const Notification = require('../models/Notification');
 const AdminAuth = require('../middleware/adminAuth');
 const { ErrorHandler } = require('../middleware/errorHandler');
-const { validateInput } = require('../middleware/validation');
+const { handleValidationErrors } = require('../middleware/validation');
 
 const router = express.Router();
 
@@ -15,7 +15,7 @@ const router = express.Router();
  */
 
 // Admin login
-router.post('/login', validateInput, async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
