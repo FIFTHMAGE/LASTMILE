@@ -19,6 +19,10 @@
     "test": "jest",
     "db:init": "node scripts/initializeDatabase.js",
     "db:optimize": "node scripts/initializeDatabase.js",
-    "test:performance": "jest tests/performance --testTimeout=60000"
+    "test:performance": "jest tests/performance --testTimeout=60000",
+    "cache:init": "node scripts/initializeCache.js init",
+    "cache:cleanup": "node scripts/initializeCache.js cleanup",
+    "cache:maintenance": "node scripts/initializeCache.js maintenance",
+    "cache:monitor": "node scripts/initializeCache.js monitor"
   }
 }

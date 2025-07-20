@@ -5,6 +5,7 @@
 
 const { CacheService } = require('../services/CacheService');
 const { CacheStrategies } = require('../services/CacheStrategies');
+const { CacheIntegration } = require('../services/CacheIntegration');
 const TestFactories = global.testUtils.TestFactories;
 const TestHelpers = global.testUtils.TestHelpers;
 
@@ -627,6 +628,344 @@ describe('Caching System Tests', () => {
       // Verify caches are cleared
       expect(await cacheStrategies.getUserProfile(userId)).toBeNull();
       expect(await cacheStrategies.getUserStats(userId, 'deliveries')).toBeNull();
+    });
+  });
+});
+
+describe('CacheIntegration Advanced Features', () => {
+  let cacheIntegration;
+  let testUser;
+  let testOffer;
+
+  beforeAll(async () => {
+    cacheIntegration = new CacheIntegration();
+    // Use the same test cache service
+    cacheIntegration.cache = cacheService;
+    cacheIntegration.strategies.cache = cacheService;
+  });
+
+  beforeEach(async () => {
+    // Reset stats
+    cacheIntegration.resetStats();
+    
+    // Create test data
+    testUser = await TestFactories.createBusinessUser();
+    testOffer = await TestFactories.createOffer(testUser._id);
+  });
+
+  describe('Enhanced User Profile Caching', () => {
+    test('should get user profile with cache and background refresh', async () => {
+      const userId = testUser._id.toString();
+
+      // First call should miss cache and fetch from database
+      const profile1 = await cacheIntegration.getUserProfileWithCache(userId);
+      expect(profile1).not.toBeNull();
+      expect(profile1.businessName).toBe(testUser.profile.businessName);
+
+      // Check stats
+      const stats1 = cacheIntegration.getPerformanceStats();
+      expect(stats1.misses).toBe(1);
+      expect(stats1.hits).toBe(0);
+
+      // Second call should hit cache
+      const profile2 = await cacheIntegration.getUserProfileWithCache(userId);
+      expect(profile2).toEqual(profile1);
+
+      // Check stats
+      const stats2 = cacheIntegration.getPerformanceStats();
+      expect(stats2.hits).toBe(1);
+      expect(stats2.misses).toBe(1);
+    });
+
+    test('should handle cache errors gracefully', async () => {
+      const userId = testUser._id.toString();
+
+      // Simulate cache error by disconnecting
+      await cacheService.disconnect();
+
+      // Should still return data from database
+      const profile = await cacheIntegration.getUserProfileWithCache(userId);
+      expect(profile).not.toBeNull();
+      expect(profile.businessName).toBe(testUser.profile.businessName);
+
+      // Check error stats
+      const stats = cacheIntegration.getPerformanceStats();
+      expect(stats.errors).toBe(1);
+
+      // Reconnect for other tests
+      await cacheService.connect();
+    });
+  });
+
+  describe('Enhanced Nearby Offers Caching', () => {
+    test('should cache nearby offers with location clustering', async () => {
+      const lat = 37.7749;
+      const lng = -122.4194;
+      const maxDistance = 10000;
+
+      // Mock the Offer.aggregate method
+      const originalAggregate = require('../models/Offer').aggregate;
+      require('../models/Offer').aggregate = jest.fn().mockResolvedValue([testOffer]);
+
+      // First call should miss cache
+      const offers1 = await cacheIntegration.getNearbyOffersWithCache(lat, lng, maxDistance);
+      expect(offers1).toHaveLength(1);
+      expect(offers1[0]._id).toBe(testOffer._id);
+
+      // Check that database was called
+      expect(require('../models/Offer').aggregate).toHaveBeenCalledTimes(1);
+
+      // Second call should hit cache
+      const offers2 = await cacheIntegration.getNearbyOffersWithCache(lat, lng, maxDistance);
+      expect(offers2).toEqual(offers1);
+
+      // Database should not be called again
+      expect(require('../models/Offer').aggregate).toHaveBeenCalledTimes(1);
+
+      // Restore original method
+      require('../models/Offer').aggregate = originalAggregate;
+    });
+
+    test('should handle location clustering correctly', async () => {
+      // Test that similar coordinates use the same cache key
+      const lat1 = 37.7749123;
+      const lng1 = -122.4194456;
+      const lat2 = 37.7749789; // Very close to lat1
+      const lng2 = -122.4194123; // Very close to lng1
+      const maxDistance = 5000;
+
+      // Mock the Offer.aggregate method
+      const originalAggregate = require('../models/Offer').aggregate;
+      require('../models/Offer').aggregate = jest.fn().mockResolvedValue([testOffer]);
+
+      // First call
+      await cacheIntegration.getNearbyOffersWithCache(lat1, lng1, maxDistance);
+      
+      // Second call with very similar coordinates should hit cache
+      await cacheIntegration.getNearbyOffersWithCache(lat2, lng2, maxDistance);
+
+      // Database should only be called once due to location clustering
+      expect(require('../models/Offer').aggregate).toHaveBeenCalledTimes(1);
+
+      // Restore original method
+      require('../models/Offer').aggregate = originalAggregate;
+    });
+  });
+
+  describe('Enhanced Business Offers Caching', () => {
+    test('should cache business offers with pagination awareness', async () => {
+      const businessId = testUser._id.toString();
+
+      // Mock the Offer.find method
+      const originalFind = require('../models/Offer').find;
+      const mockQuery = {
+        populate: jest.fn().mockReturnThis(),
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue([testOffer])
+      };
+      require('../models/Offer').find = jest.fn().mockReturnValue(mockQuery);
+
+      // First page should be cached
+      const offers1 = await cacheIntegration.getBusinessOffersWithCache(businessId, null, 1);
+      expect(offers1).toHaveLength(1);
+
+      // Second call to first page should hit cache
+      await cacheIntegration.getBusinessOffersWithCache(businessId, null, 1);
+
+      // Database should only be called once for first page
+      expect(require('../models/Offer').find).toHaveBeenCalledTimes(1);
+
+      // Second page should not use cache
+      await cacheIntegration.getBusinessOffersWithCache(businessId, null, 2);
+
+      // Database should be called again for second page
+      expect(require('../models/Offer').find).toHaveBeenCalledTimes(2);
+
+      // Restore original method
+      require('../models/Offer').find = originalFind;
+    });
+  });
+
+  describe('Enhanced Rider Earnings Caching', () => {
+    test('should cache rider earnings by period', async () => {
+      const riderId = testUser._id.toString();
+
+      // Mock the Payment.find method
+      const originalFind = require('../models/Payment').find;
+      require('../models/Payment').find = jest.fn().mockResolvedValue([
+        { riderEarnings: 25.00 },
+        { riderEarnings: 30.00 },
+        { riderEarnings: 20.00 }
+      ]);
+
+      // Test different periods
+      const todayEarnings = await cacheIntegration.getRiderEarningsWithCache(riderId, 'today');
+      const weekEarnings = await cacheIntegration.getRiderEarningsWithCache(riderId, 'week');
+      const monthEarnings = await cacheIntegration.getRiderEarningsWithCache(riderId, 'month');
+
+      expect(todayEarnings.totalEarnings).toBe(75.00);
+      expect(todayEarnings.totalDeliveries).toBe(3);
+      expect(todayEarnings.averageEarning).toBe(25.00);
+
+      expect(weekEarnings.period).toBe('week');
+      expect(monthEarnings.period).toBe('month');
+
+      // Each period should have its own cache
+      expect(require('../models/Payment').find).toHaveBeenCalledTimes(3);
+
+      // Second call to same period should hit cache
+      await cacheIntegration.getRiderEarningsWithCache(riderId, 'today');
+      expect(require('../models/Payment').find).toHaveBeenCalledTimes(3); // No additional calls
+
+      // Restore original method
+      require('../models/Payment').find = originalFind;
+    });
+  });
+
+  describe('Smart Cache Invalidation', () => {
+    test('should invalidate related caches on offer creation', async () => {
+      const businessId = testUser._id.toString();
+      const offerId = testOffer._id.toString();
+
+      // Set up some caches
+      await cacheIntegration.strategies.setOffer(offerId, testOffer);
+      await cacheIntegration.strategies.setBusinessOffers(businessId, [testOffer]);
+      await cacheIntegration.strategies.setNearbyOffers(37.7749, -122.4194, 10000, {}, [testOffer]);
+
+      // Verify caches exist
+      expect(await cacheIntegration.strategies.getOffer(offerId)).not.toBeNull();
+      expect(await cacheIntegration.strategies.getBusinessOffers(businessId)).not.toBeNull();
+
+      // Invalidate related caches
+      await cacheIntegration.invalidateRelatedCaches('offer_created', {
+        offerId,
+        businessId
+      });
+
+      // Verify caches are cleared
+      expect(await cacheIntegration.strategies.getOffer(offerId)).toBeNull();
+      expect(await cacheIntegration.strategies.getBusinessOffers(businessId)).toBeNull();
+    });
+
+    test('should invalidate related caches on payment completion', async () => {
+      const businessId = testUser._id.toString();
+      const rider = await TestFactories.createRiderUser();
+      const riderId = rider._id.toString();
+      const payment = await TestFactories.createPayment(businessId, riderId);
+      const paymentId = payment._id.toString();
+
+      // Set up earnings caches
+      await cacheIntegration.strategies.setRiderEarnings(riderId, { totalEarnings: 100 });
+      await cacheIntegration.strategies.setBusinessEarnings(businessId, { totalSpent: 200 });
+
+      // Verify caches exist
+      expect(await cacheIntegration.strategies.getRiderEarnings(riderId)).not.toBeNull();
+      expect(await cacheIntegration.strategies.getBusinessEarnings(businessId)).not.toBeNull();
+
+      // Invalidate related caches
+      await cacheIntegration.invalidateRelatedCaches('payment_completed', {
+        paymentId,
+        businessId,
+        riderId
+      });
+
+      // Verify earnings caches are cleared
+      expect(await cacheIntegration.strategies.getRiderEarnings(riderId)).toBeNull();
+      expect(await cacheIntegration.strategies.getBusinessEarnings(businessId)).toBeNull();
+    });
+  });
+
+  describe('Cache Warm-up', () => {
+    test('should warm up frequently accessed data', async () => {
+      // Mock User.find for active users
+      const originalUserFind = require('../models/User').find;
+      require('../models/User').find = jest.fn().mockReturnValue({
+        limit: jest.fn().mockResolvedValue([testUser])
+      });
+
+      // Mock Offer.find for recent offers
+      const originalOfferFind = require('../models/Offer').find;
+      require('../models/Offer').find = jest.fn().mockReturnValue({
+        limit: jest.fn().mockResolvedValue([testOffer])
+      });
+
+      // Warm up cache
+      await cacheIntegration.warmUpFrequentData();
+
+      // Verify user profile is cached
+      const cachedProfile = await cacheIntegration.strategies.getUserProfile(testUser._id.toString());
+      expect(cachedProfile).not.toBeNull();
+
+      // Verify offer is cached
+      const cachedOffer = await cacheIntegration.strategies.getOffer(testOffer._id.toString());
+      expect(cachedOffer).not.toBeNull();
+
+      // Restore original methods
+      require('../models/User').find = originalUserFind;
+      require('../models/Offer').find = originalOfferFind;
+    });
+  });
+
+  describe('Performance Monitoring', () => {
+    test('should track cache performance statistics', async () => {
+      const userId = testUser._id.toString();
+
+      // Reset stats
+      cacheIntegration.resetStats();
+
+      // Generate some cache hits and misses
+      await cacheIntegration.getUserProfileWithCache(userId); // Miss
+      await cacheIntegration.getUserProfileWithCache(userId); // Hit
+      await cacheIntegration.getUserProfileWithCache(userId); // Hit
+
+      const stats = cacheIntegration.getPerformanceStats();
+      expect(stats.totalRequests).toBe(3);
+      expect(stats.hits).toBe(2);
+      expect(stats.misses).toBe(1);
+      expect(stats.hitRate).toBe('66.67%');
+      expect(stats.errorRate).toBe('0%');
+    });
+
+    test('should provide health check information', async () => {
+      const health = await cacheIntegration.healthCheck();
+      
+      expect(health.status).toBe('healthy');
+      expect(health.cache).toBeDefined();
+      expect(health.performance).toBeDefined();
+      expect(health.timestamp).toBeDefined();
+    });
+  });
+
+  describe('Error Handling and Resilience', () => {
+    test('should handle cache service failures gracefully', async () => {
+      const userId = testUser._id.toString();
+
+      // Simulate cache failure
+      const originalGet = cacheService.get;
+      cacheService.get = jest.fn().mockRejectedValue(new Error('Cache unavailable'));
+
+      // Should still return data from database
+      const profile = await cacheIntegration.getUserProfileWithCache(userId);
+      expect(profile).not.toBeNull();
+
+      // Should track error
+      const stats = cacheIntegration.getPerformanceStats();
+      expect(stats.errors).toBe(1);
+
+      // Restore original method
+      cacheService.get = originalGet;
+    });
+
+    test('should handle database failures gracefully', async () => {
+      const userId = 'nonexistent-user-id';
+
+      // Should handle non-existent user gracefully
+      const profile = await cacheIntegration.getUserProfileWithCache(userId);
+      expect(profile).toBeNull();
+
+      // Should not crash on invalid data
+      const stats = cacheIntegration.getPerformanceStats();
+      expect(stats.totalRequests).toBeGreaterThan(0);
     });
   });
 });

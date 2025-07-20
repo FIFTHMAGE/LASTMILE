@@ -44,7 +44,7 @@ if (process.env.NODE_ENV !== 'test') {
 // Initialize Redis cache connection
 if (process.env.NODE_ENV !== 'test') {
   cacheStrategies.cache.connect()
-    .then(() => console.log('Redis cache connected'))
+    .then(async () => {\n      console.log('✅ Redis cache connected');\n      \n      // Initialize cache integration and warm-up\n      try {\n        const { cacheIntegration } = require('./services/CacheIntegration');\n        await cacheIntegration.warmUpFrequentData();\n        console.log('🔥 Cache warm-up completed');\n        \n        // Set up periodic cache maintenance (every 30 minutes)\n        setInterval(async () => {\n          try {\n            const { performCacheMaintenance } = require('./scripts/initializeCache');\n            await performCacheMaintenance();\n          } catch (maintenanceError) {\n            console.warn('⚠️  Cache maintenance failed:', maintenanceError.message);\n          }\n        }, 30 * 60 * 1000);\n        \n      } catch (warmupError) {\n        console.warn('⚠️  Cache warm-up failed:', warmupError.message);\n      }\n    })
     .catch((err) => console.error('Redis connection error:', err));
 }
 
@@ -62,6 +62,7 @@ app.use('/api/notifications', warmCache, notificationRoutes);
 app.use('/api/earnings', warmCache, earningsRoutes);
 app.use('/api/delivery', warmCache, deliveryRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/business', warmCache, businessDashboardRoutes);
 
 app.get('/', (req, res) => {
   res.send('Last Mile API is running');

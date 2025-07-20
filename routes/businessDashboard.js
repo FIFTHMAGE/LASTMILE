@@ -9,12 +9,36 @@ const User = require('../models/User');
 const Offer = require('../models/Offer');
 const Payment = require('../models/Payment');
 const Notification = require('../models/Notification');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 const { ErrorHandler } = require('../middleware/errorHandler');
 const { validateInput } = require('../middleware/validation');
 const { cacheStrategies } = require('../services/CacheStrategies');
 
 const router = express.Router();
+
+// Auth middleware function
+function requireAuth(req, res, next) {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  
+  try {
+    const jwt = require('jsonwebtoken');
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ message: 'Invalid token' });
+  }
+}
+
+// Role middleware function
+function requireRole(role) {
+  return (req, res, next) => {
+    if (req.user.role !== role) {
+      return res.status(403).json({ message: `Access denied. ${role} role required.` });
+    }
+    next();
+  };
+}
 
 // Apply authentication middleware to all routes
 router.use(requireAuth);
@@ -806,6 +830,388 @@ router.get('/profile', async (req, res) => {
     ErrorHandler.serverError(res, 'Failed to get business profile', error);
   }
 });
+
+/**
+ * Get business notifications
+ */
+router.get('/notifications', async (req, res) => {
+  try {
+    const businessId = req.user._id;
+    const { 
+      page = 1, 
+      limit = 20, 
+      isRead, 
+      type,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const skip = (page - 1) * limit;
+    
+    // Build filter
+    const filter = { user: businessId };
+    
+    if (isRead !== undefined) {
+      filter.read = isRead === 'true';
+    }
+    
+    if (type) {
+      filter.type = type;
+    }
+
+    // Build sort
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Get notifications and total count
+    const [notifications, totalNotifications, unreadCount] = await Promise.all([
+      Notification.find(filter)
+        .populate('offer', 'pickup.address delivery.address payment.amount')
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Notification.countDocuments(filter),
+      Notification.countDocuments({ user: businessId, read: false })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        notifications: notifications.map(notification => ({
+          id: notification._id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          read: notification.read,
+          createdAt: notification.createdAt,
+          readAt: notification.readAt,
+          offer: notification.offer ? {
+            id: notification.offer._id,
+            pickup: notification.offer.pickup?.address,
+            delivery: notification.offer.delivery?.address,
+            amount: notification.offer.payment?.amount
+          } : null,
+          data: notification.data
+        })),
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalNotifications / limit),
+          totalNotifications,
+          hasNext: skip + notifications.length < totalNotifications,
+          hasPrev: page > 1
+        },
+        unreadCount
+      }
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to get business notifications', error);
+  }
+});
+
+/**
+ * Mark notification as read
+ */
+router.patch('/notifications/:notificationId/read', async (req, res) => {
+  try {
+    const businessId = req.user._id;
+    const { notificationId } = req.params;
+
+    const notification = await Notification.findOneAndUpdate(
+      { _id: notificationId, user: businessId },
+      { read: true, readAt: new Date() },
+      { new: true }
+    );
+
+    if (!notification) {
+      return ErrorHandler.notFound(res, 'Notification not found');
+    }
+
+    // Invalidate notification caches
+    await cacheStrategies.invalidateUserNotifications(businessId);
+
+    res.json({
+      success: true,
+      message: 'Notification marked as read',
+      data: {
+        notification: {
+          id: notification._id,
+          read: notification.read,
+          readAt: notification.readAt
+        }
+      }
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to mark notification as read', error);
+  }
+});
+
+/**
+ * Mark all notifications as read
+ */
+router.patch('/notifications/mark-all-read', async (req, res) => {
+  try {
+    const businessId = req.user._id;
+
+    const result = await Notification.updateMany(
+      { user: businessId, read: false },
+      { read: true, readAt: new Date() }
+    );
+
+    // Invalidate notification caches
+    await cacheStrategies.invalidateUserNotifications(businessId);
+
+    res.json({
+      success: true,
+      message: 'All notifications marked as read',
+      data: {
+        updatedCount: result.modifiedCount
+      }
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to mark all notifications as read', error);
+  }
+});
+
+/**
+ * Get business statistics summary
+ */
+router.get('/stats', async (req, res) => {
+  try {
+    const businessId = req.user._id;
+    const { period = '30d' } = req.query;
+
+    // Calculate date range
+    let startDate;
+    switch (period) {
+      case '7d':
+        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '30d':
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case '90d':
+        startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    }
+
+    // Get comprehensive statistics
+    const [
+      totalStats,
+      periodStats,
+      statusBreakdown,
+      avgMetrics
+    ] = await Promise.all([
+      // All-time statistics
+      Offer.aggregate([
+        { $match: { business: businessId } },
+        {
+          $group: {
+            _id: null,
+            totalOffers: { $sum: 1 },
+            completedOffers: {
+              $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] }
+            },
+            cancelledOffers: {
+              $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] }
+            },
+            totalAmount: { $sum: '$payment.amount' },
+            avgAmount: { $avg: '$payment.amount' }
+          }
+        }
+      ]),
+
+      // Period-specific statistics
+      Offer.aggregate([
+        { 
+          $match: { 
+            business: businessId,
+            createdAt: { $gte: startDate }
+          } 
+        },
+        {
+          $group: {
+            _id: null,
+            periodOffers: { $sum: 1 },
+            periodCompleted: {
+              $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] }
+            },
+            periodAmount: { $sum: '$payment.amount' }
+          }
+        }
+      ]),
+
+      // Status breakdown
+      Offer.aggregate([
+        { $match: { business: businessId } },
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]),
+
+      // Average metrics for completed deliveries
+      Offer.aggregate([
+        {
+          $match: {
+            business: businessId,
+            status: 'delivered',
+            acceptedAt: { $exists: true },
+            deliveredAt: { $exists: true }
+          }
+        },
+        {
+          $addFields: {
+            deliveryTime: {
+              $subtract: ['$deliveredAt', '$acceptedAt']
+            }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            avgDeliveryTime: { $avg: '$deliveryTime' },
+            avgDistance: { $avg: '$estimatedDistance' },
+            avgAmount: { $avg: '$payment.amount' }
+          }
+        }
+      ])
+    ]);
+
+    const stats = {
+      period,
+      total: totalStats[0] || {
+        totalOffers: 0,
+        completedOffers: 0,
+        cancelledOffers: 0,
+        totalAmount: 0,
+        avgAmount: 0
+      },
+      periodData: periodStats[0] || {
+        periodOffers: 0,
+        periodCompleted: 0,
+        periodAmount: 0
+      },
+      statusBreakdown: statusBreakdown.reduce((acc, item) => {
+        acc[item._id] = item.count;
+        return acc;
+      }, {}),
+      averages: avgMetrics[0] ? {
+        deliveryTime: Math.round(avgMetrics[0].avgDeliveryTime / (1000 * 60)), // Minutes
+        distance: Math.round(avgMetrics[0].avgDistance || 0), // Meters
+        amount: parseFloat((avgMetrics[0].avgAmount || 0).toFixed(2))
+      } : {
+        deliveryTime: 0,
+        distance: 0,
+        amount: 0
+      }
+    };
+
+    // Calculate completion rate
+    stats.total.completionRate = stats.total.totalOffers > 0 ? 
+      ((stats.total.completedOffers / stats.total.totalOffers) * 100).toFixed(1) : 0;
+
+    stats.periodData.completionRate = stats.periodData.periodOffers > 0 ? 
+      ((stats.periodData.periodCompleted / stats.periodData.periodOffers) * 100).toFixed(1) : 0;
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to get business statistics', error);
+  }
+});
+
+/**
+ * Export business data
+ */
+router.get('/export', async (req, res) => {
+  try {
+    const businessId = req.user._id;
+    const { 
+      type = 'offers', 
+      format = 'json',
+      dateFrom,
+      dateTo 
+    } = req.query;
+
+    // Build date filter
+    const dateFilter = {};
+    if (dateFrom) dateFilter.$gte = new Date(dateFrom);
+    if (dateTo) dateFilter.$lte = new Date(dateTo);
+
+    let data;
+
+    switch (type) {
+      case 'offers':
+        data = await Offer.find({
+          business: businessId,
+          ...(Object.keys(dateFilter).length > 0 && { createdAt: dateFilter })
+        })
+        .populate('acceptedBy', 'name profile.phone profile.rating')
+        .select('-__v')
+        .lean();
+        break;
+
+      case 'payments':
+        data = await Payment.find({
+          businessId: businessId,
+          ...(Object.keys(dateFilter).length > 0 && { createdAt: dateFilter })
+        })
+        .populate('riderId', 'name profile.phone')
+        .populate('offerId', 'pickup.address delivery.address')
+        .select('-__v')
+        .lean();
+        break;
+
+      default:
+        return ErrorHandler.badRequest(res, 'Invalid export type');
+    }
+
+    if (format === 'csv') {
+      // Convert to CSV format
+      const csv = convertToCSV(data);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${type}_export_${Date.now()}.csv"`);
+      res.send(csv);
+    } else {
+      // Return JSON format
+      res.json({
+        success: true,
+        data: {
+          type,
+          exportedAt: new Date(),
+          count: data.length,
+          records: data
+        }
+      });
+    }
+  } catch (error) {
+    ErrorHandler.serverError(res, 'Failed to export business data', error);
+  }
+});
+
+/**
+ * Helper function to convert data to CSV
+ */
+function convertToCSV(data) {
+  if (!data || data.length === 0) return '';
+  
+  const headers = Object.keys(data[0]);
+  const csvRows = [headers.join(',')];
+  
+  for (const row of data) {
+    const values = headers.map(header => {
+      const value = row[header];
+      if (typeof value === 'object' && value !== null) {
+        return JSON.stringify(value).replace(/"/g, '""');
+      }
+      return `"${String(value).replace(/"/g, '""')}"`;
+    });
+    csvRows.push(values.join(','));
+  }
+  
+  return csvRows.join('\n');
+}
 
 /**
  * Update business profile
