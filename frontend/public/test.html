@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Last Mile Delivery Platform - Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .status {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #4caf50;
+            margin: 20px 0;
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚚 Last Mile Delivery Platform</h1>
+            <p>Connecting businesses with nearby riders for efficient package delivery</p>
+        </div>
+        
+        <div class="status">
+            <strong>✅ Deployment Status: SUCCESS</strong><br>
+            Your Last Mile Delivery Platform is now live and running!
+        </div>
+        
+        <h2>🎯 Test the Platform</h2>
+        <p>Click the buttons below to test different features:</p>
+        
+        <a href="/api/test" class="button">Test API</a>
+        <a href="/health" class="button">Health Check</a>
+        <a href="#" onclick="testRegistration()" class="button">Test Registration</a>
+        
+        <h2>📱 Features Available</h2>
+        <ul>
+            <li>✅ User Authentication (Business/Rider)</li>
+            <li>✅ Offer Management System</li>
+            <li>✅ Real-time Location Tracking</li>
+            <li>✅ Payment Processing</li>
+            <li>✅ Notification System</li>
+            <li>✅ Admin Dashboard</li>
+        </ul>
+        
+        <h2>🔧 API Endpoints</h2>
+        <ul>
+            <li><code>POST /api/auth/register</code> - User registration</li>
+            <li><code>POST /api/auth/login</code> - User login</li>
+            <li><code>GET /api/test</code> - API test endpoint</li>
+            <li><code>GET /health</code> - Health check</li>
+        </ul>
+        
+        <div id="result" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; display: none;"></div>
+    </div>
+    
+    <script>
+        async function testRegistration() {
+            const result = document.getElementById('result');
+            result.style.display = 'block';
+            result.innerHTML = 'Testing registration endpoint...';
+            
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: 'Test User',
+                        email: 'test@example.com',
+                        role: 'business'
+                    })
+                });
+                
+                const data = await response.json();
+                result.innerHTML = `<strong>Registration Test Result:</strong><br><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                result.innerHTML = `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
