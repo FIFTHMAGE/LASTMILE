@@ -126,20 +126,22 @@ const speedLimitConfigs = {
   general: {
     windowMs: 15 * 60 * 1000, // 15 minutes
     delayAfter: 50, // Allow 50 requests per windowMs without delay
-    delayMs: 500, // Add 500ms delay per request after delayAfter
+    delayMs: () => 500, // Add 500ms delay per request after delayAfter
     maxDelayMs: 10000, // Maximum delay of 10 seconds
     skipFailedRequests: true, // Don't count failed requests
-    skipSuccessfulRequests: false // Count successful requests
+    skipSuccessfulRequests: false, // Count successful requests
+    validate: { delayMs: false } // Disable warning
   },
 
   // Authentication speed limiting
   auth: {
     windowMs: 15 * 60 * 1000, // 15 minutes
     delayAfter: 5, // Allow 5 requests per windowMs without delay
-    delayMs: 1000, // Add 1 second delay per request after delayAfter
+    delayMs: () => 1000, // Add 1 second delay per request after delayAfter
     maxDelayMs: 30000, // Maximum delay of 30 seconds
     skipFailedRequests: false, // Count failed requests
-    skipSuccessfulRequests: true // Don't count successful requests
+    skipSuccessfulRequests: true, // Don't count successful requests
+    validate: { delayMs: false } // Disable warning
   }
 };
 
@@ -156,11 +158,19 @@ const rateLimiters = {
 };
 
 /**
- * Create speed limiter instances
+ * Create speed limiter instances with updated API
  */
 const speedLimiters = {
-  general: slowDown(speedLimitConfigs.general),
-  auth: slowDown(speedLimitConfigs.auth)
+  general: slowDown({
+    ...speedLimitConfigs.general,
+    delayMs: () => 500, // Use new API format
+    validate: { delayMs: false } // Disable warning
+  }),
+  auth: slowDown({
+    ...speedLimitConfigs.auth,
+    delayMs: () => 1000, // Use new API format
+    validate: { delayMs: false } // Disable warning
+  })
 };
 
 /**
