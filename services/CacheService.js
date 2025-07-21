@@ -14,16 +14,33 @@ class CacheService {
     this.isConnected = false;
     this.defaultTTL = options.defaultTTL || 3600; // 1 hour default
     this.keyPrefix = options.keyPrefix || 'lastmile:';
-    this.options = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: process.env.REDIS_PORT || 6379,
-      password: process.env.REDIS_PASSWORD || undefined,
-      db: process.env.REDIS_DB || 0,
-      retryDelayOnFailover: 100,
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-      ...options
-    };
+    
+    // Use REDIS_URL if available (Heroku), otherwise use individual options
+    if (process.env.REDIS_URL) {
+      this.options = {
+        retryDelayOnFailover: 100,
+        maxRetriesPerRequest: 3,
+        lazyConnect: true,
+        // Handle SSL for Heroku Redis
+        tls: process.env.REDIS_URL.startsWith('rediss://') ? {
+          rejectUnauthorized: false
+        } : undefined,
+        ...options
+      };
+      this.redisUrl = process.env.REDIS_URL;
+    } else {
+      this.options = {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: process.env.REDIS_PORT || 6379,
+        password: process.env.REDIS_PASSWORD || undefined,
+        db: process.env.REDIS_DB || 0,
+        retryDelayOnFailover: 100,
+        maxRetriesPerRequest: 3,
+        lazyConnect: true,
+        ...options
+      };
+      this.redisUrl = null;
+    }
   }
 
   /**
@@ -35,7 +52,12 @@ class CacheService {
         return this.redis;
       }
 
-      this.redis = new Redis(this.options);
+      // Use Redis URL if available (Heroku), otherwise use options
+      if (this.redisUrl) {
+        this.redis = new Redis(this.redisUrl, this.options);
+      } else {
+        this.redis = new Redis(this.options);
+      }
 
       // Handle connection events
       this.redis.on('connect', () => {
