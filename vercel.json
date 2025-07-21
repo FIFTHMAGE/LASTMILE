@@ -2,8 +2,11 @@
   "version": 2,
   "builds": [
     {
-      "src": "public/**",
-      "use": "@vercel/static"
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build"
+      }
     },
     {
       "src": "api/index.js",
@@ -20,8 +23,20 @@
       "dest": "/api/index.js"
     },
     {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|svg|ico|json|txt|woff|woff2|ttf|eot))",
+      "dest": "/$1"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/public/index.html"
+      "dest": "/index.html"
     }
-  ]
+  ],
+  "env": {
+    "CI": "false",
+    "GENERATE_SOURCEMAP": "false"
+  }
 }
