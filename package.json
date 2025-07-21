@@ -2,7 +2,7 @@
   "name": "lastmile-delivery-platform",
   "version": "1.0.0",
   "description": "Complete delivery platform connecting businesses with riders",
-  "main": "server.js",
+  "main": "server-simple.js",
   "engines": {
     "node": "18.x",
     "npm": "9.x"
@@ -31,7 +31,7 @@
     "semver": "^7.7.2"
   },
   "scripts": {
-    "start": "node server.js",
+    "start": "node server-simple.js",
     "dev": "nodemon server.js",
     "build": "cd frontend && npm install && npm run build",
     "build:frontend": "cd frontend && npm install && npm run build",
