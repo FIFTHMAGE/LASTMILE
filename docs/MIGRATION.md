@@ -1,407 +1,385 @@
 # API Migration Guide
 
-## Overview
+This document provides comprehensive guidance for migrating between different versions of the Last Mile Delivery Platform API.
 
-This guide helps developers migrate between different versions of the Last Mile Delivery Platform API. The API uses semantic versioning and provides backward compatibility support for smooth transitions.
+## Version Overview
 
-## Current API Versions
-
-| Version | Status | Release Date | Support End | Breaking Changes |
-|---------|--------|--------------|-------------|------------------|
-| v1.0    | Stable | 2024-01-01   | 2025-01-01  | None (Initial)   |
-| v1.1    | Stable | 2024-06-01   | 2025-06-01  | None             |
-| v2.0    | Beta   | 2024-12-01   | TBD         | Yes              |
+| Version | Status | Release Date | Deprecation Date | Sunset Date |
+|---------|--------|--------------|------------------|-------------|
+| v1.0    | Current | 2024-01-01   | TBD             | TBD         |
+| v1.1    | Planned | 2024-06-01   | TBD             | TBD         |
+| v2.0    | Beta    | 2024-09-01   | TBD             | TBD         |
 
 ## Version Detection
 
-The API supports multiple ways to specify the version:
+The API supports multiple methods for version detection:
 
 ### 1. URL Path (Recommended)
 ```
-GET /api/v1/business/offers
-GET /api/v2/business/offers
+GET /api/v1/auth/login
+GET /api/v2/auth/login
 ```
 
 ### 2. Accept-Version Header
 ```http
-GET /api/business/offers
+GET /api/auth/login
 Accept-Version: v1
 ```
 
 ### 3. Query Parameter
 ```
-GET /api/business/offers?version=v1
+GET /api/auth/login?version=v1
 ```
 
 ## Migration Paths
 
-### v1.0 → v1.1 (Non-Breaking)
+### V1.0 to V1.1 (Minor Update)
 
-**Effort Level**: Low  
-**Migration Time**: 1-2 hours  
-**Breaking Changes**: None
+**Migration Effort:** Low  
+**Breaking Changes:** None  
+**Timeline:** 1-2 days
 
-#### What's New in v1.1
-- Enhanced filtering options for offers
-- Improved error messages
-- Additional metadata in responses
-- Performance optimizations
-
-#### Migration Steps
-1. **Optional Update**: All v1.0 endpoints remain fully compatible
-2. **New Features**: Adopt new filtering parameters if needed
-3. **Testing**: Verify existing functionality works unchanged
-
-#### Example Changes
-```javascript
-// v1.0 - Basic filtering
-GET /api/v1/rider/nearby-offers?maxDistance=5000
-
-// v1.1 - Enhanced filtering (backward compatible)
-GET /api/v1.1/rider/nearby-offers?maxDistance=5000&vehicleType=bike&minRating=4.0
-```
-
-### v1.x → v2.0 (Breaking Changes)
-
-**Effort Level**: High  
-**Migration Time**: 1-2 weeks  
-**Breaking Changes**: Yes
-
-#### Major Breaking Changes
-
-##### 1. Authentication Response Format
-**v1.x Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "user": { ... },
-    "token": "jwt_token",
-    "accessToken": "jwt_token",
-    "tokenType": "Bearer",
-    "expiresIn": "24h"
-  }
-}
-```
-
-**v2.0 Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "user": { 
-      "metadata": { "version": "v2", ... }
-    },
-    "authentication": {
-      "accessToken": "jwt_token",
-      "refreshToken": "refresh_token",
-      "tokenType": "Bearer",
-      "expiresIn": 3600,
-      "refreshExpiresIn": 604800
-    }
-  }
-}
-```
-
-##### 2. Enhanced Security Requirements
-- Stronger password requirements
-- Account lockout after failed attempts
-- Separate refresh tokens
-- Shorter access token lifetime (1 hour vs 24 hours)
-
-##### 3. Response Structure Changes
-- Numeric expiration times instead of strings
-- Enhanced error responses with request IDs
-- Additional security metadata
+#### What's New in V1.1
+- Enhanced offer filtering options
+- Improved geospatial query performance
+- Additional notification types
+- Extended user profile fields
 
 #### Migration Steps
+1. **Update API calls (Optional)**
+   - All V1.0 endpoints remain fully compatible
+   - New features are additive only
 
-##### Step 1: Review Breaking Changes
-1. Read the complete changelog
-2. Identify affected endpoints in your application
-3. Plan the migration timeline
+2. **Adopt new features (Recommended)**
+   ```javascript
+   // New filtering options in V1.1
+   GET /api/v1.1/offers?packageType=fragile&maxDistance=5000&sortBy=payment
+   ```
 
-##### Step 2: Update Authentication Handling
+3. **Test thoroughly**
+   - Existing functionality should work unchanged
+   - Test new features if adopted
+
+#### Code Examples
+
+**V1.0 (Still supported)**
 ```javascript
-// v1.x Authentication
-const loginResponse = await fetch('/api/v1/auth/login', {
-  method: 'POST',
-  body: JSON.stringify({ email, password })
-});
-const { token } = loginResponse.data;
-
-// v2.0 Authentication
-const loginResponse = await fetch('/api/v2/auth/login', {
-  method: 'POST',
-  body: JSON.stringify({ 
-    email, 
-    password,
-    deviceInfo: { fingerprint: getDeviceFingerprint() }
-  })
-});
-const { accessToken, refreshToken } = loginResponse.data.authentication;
+// Basic offer filtering
+const response = await fetch('/api/v1/offers?distance=5000');
 ```
 
-##### Step 3: Implement Token Refresh
+**V1.1 (Enhanced)**
 ```javascript
-// v2.0 Token Refresh (New Requirement)
-const refreshTokens = async (refreshToken) => {
-  const response = await fetch('/api/v2/auth/refresh', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken })
-  });
-  
-  if (response.ok) {
-    const { authentication } = response.data;
-    return {
-      accessToken: authentication.accessToken,
-      refreshToken: authentication.refreshToken
-    };
-  }
-  
-  throw new Error('Token refresh failed');
-};
+// Enhanced filtering with new options
+const response = await fetch('/api/v1.1/offers?distance=5000&packageType=fragile&sortBy=payment');
 ```
 
-##### Step 4: Update Error Handling
-```javascript
-// v1.x Error Handling
-if (!response.success) {
-  console.error(response.error.message);
-}
+### V1.0 to V2.0 (Major Update)
 
-// v2.0 Enhanced Error Handling
-if (!response.success) {
-  console.error(`[${response.error.requestId}] ${response.error.message}`);
-  
-  // Handle specific v2.0 error codes
-  switch (response.error.code) {
-    case 'ACCOUNT_LOCKED':
-      showAccountLockedMessage(response.error.unlockTime);
-      break;
-    case 'WEAK_PASSWORD':
-      showPasswordRequirements();
-      break;
-    default:
-      showGenericError(response.error.message);
-  }
-}
-```
+**Migration Effort:** High  
+**Breaking Changes:** Yes  
+**Timeline:** 1-2 weeks
 
-##### Step 5: Update Password Requirements
-```javascript
-// v2.0 Password Validation
-const validatePassword = (password) => {
-  const requirements = {
-    minLength: password.length >= 8,
-    hasUppercase: /[A-Z]/.test(password),
-    hasLowercase: /[a-z]/.test(password),
-    hasNumber: /\d/.test(password),
-    hasSpecialChar: /[@$!%*?&]/.test(password)
-  };
-  
-  return Object.values(requirements).every(req => req);
-};
-```
+#### Breaking Changes in V2.0
 
-##### Step 6: Test Thoroughly
-1. **Unit Tests**: Update all authentication-related tests
-2. **Integration Tests**: Test complete user flows
-3. **Error Scenarios**: Test account lockout, token refresh, etc.
-4. **Performance**: Verify token refresh doesn't impact UX
+1. **Authentication Response Format**
+   ```javascript
+   // V1.0 Response
+   {
+     "success": true,
+     "data": {
+       "user": { ... },
+       "token": "jwt-token",
+       "accessToken": "jwt-token",  // Duplicate
+       "tokenType": "Bearer",
+       "expiresIn": "24h"           // String format
+     }
+   }
+
+   // V2.0 Response
+   {
+     "success": true,
+     "data": {
+       "user": { 
+         "metadata": { ... },       // New field
+         "securityLevel": "standard" // New field
+       },
+       "authentication": {          // Restructured
+         "accessToken": "jwt-token",
+         "refreshToken": "refresh-token", // New
+         "tokenType": "Bearer",
+         "expiresIn": 3600,         // Numeric seconds
+         "refreshExpiresIn": 604800,
+         "scope": ["read", "write"]
+       }
+     }
+   }
+   ```
+
+2. **Enhanced Password Requirements**
+   ```javascript
+   // V1.0: Basic password validation
+   password: "simple123"  // ✅ Valid
+
+   // V2.0: Enhanced requirements
+   password: "Simple123!" // ✅ Valid (uppercase, lowercase, number, special char)
+   password: "simple123"  // ❌ Invalid
+   ```
+
+3. **Account Security Features**
+   - Account lockout after 5 failed attempts
+   - Separate refresh token handling
+   - Enhanced JWT claims
+
+#### Migration Steps
+
+1. **Review Breaking Changes**
+   - Update authentication response parsing
+   - Handle new error codes (ACCOUNT_LOCKED, WEAK_PASSWORD)
+   - Update password validation on client side
+
+2. **Update Authentication Flow**
+   ```javascript
+   // V1.0 Login
+   const loginV1 = async (email, password) => {
+     const response = await fetch('/api/v1/auth/login', {
+       method: 'POST',
+       body: JSON.stringify({ email, password })
+     });
+     const data = await response.json();
+     return data.data.token; // Direct token access
+   };
+
+   // V2.0 Login
+   const loginV2 = async (email, password) => {
+     const response = await fetch('/api/v2/auth/login', {
+       method: 'POST',
+       body: JSON.stringify({ email, password })
+     });
+     const data = await response.json();
+     return {
+       accessToken: data.data.authentication.accessToken,
+       refreshToken: data.data.authentication.refreshToken
+     };
+   };
+   ```
+
+3. **Implement Token Refresh**
+   ```javascript
+   // V2.0 Token Refresh (New in V2.0)
+   const refreshToken = async (refreshToken) => {
+     const response = await fetch('/api/v2/auth/refresh', {
+       method: 'POST',
+       body: JSON.stringify({ refreshToken })
+     });
+     const data = await response.json();
+     return data.data.authentication;
+   };
+   ```
+
+4. **Handle Account Lockout**
+   ```javascript
+   // V2.0 Error Handling
+   const handleLoginError = (error) => {
+     switch (error.code) {
+       case 'ACCOUNT_LOCKED':
+         // Show lockout message with unlock time
+         showMessage(`Account locked until ${error.unlockTime}`);
+         break;
+       case 'WEAK_PASSWORD':
+         // Show password requirements
+         showPasswordRequirements();
+         break;
+       default:
+         showGenericError(error.message);
+     }
+   };
+   ```
+
+5. **Update Password Validation**
+   ```javascript
+   // V2.0 Client-side validation
+   const validatePassword = (password) => {
+     const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+     return regex.test(password);
+   };
+   ```
 
 ## Backward Compatibility
 
 ### Automatic Transformations
 
-The API automatically handles some backward compatibility transformations:
+The API automatically handles certain transformations for backward compatibility:
 
-#### Request Transformations (v1.x)
-```javascript
-// Legacy field names are automatically converted
-{
-  "businessProfile": { ... }  // Converted to "profile"
-  "riderProfile": { ... }     // Converted to "profile"
-  "coordinates": [lng, lat]   // Converted to GeoJSON format
-}
-```
+1. **Legacy Profile Fields**
+   ```javascript
+   // V1.0 Request (still supported)
+   {
+     "businessProfile": { ... }
+   }
+   
+   // Automatically transformed to V2.0 format
+   {
+     "profile": { ... }
+   }
+   ```
 
-#### Response Transformations (v1.x)
-```javascript
-// v1.x clients receive backward-compatible responses
-{
-  "profile": { ... },
-  "businessProfile": { ... }, // Added for compatibility
-  "riderProfile": { ... }     // Added for compatibility
-}
-```
+2. **Response Format Adaptation**
+   - V1 clients receive V1-formatted responses even from V2 endpoints
+   - Coordinate formats are automatically converted
+   - Pagination formats are maintained
 
-### Version-Specific Routes
+### Compatibility Headers
 
-Some endpoints have version-specific implementations:
+When using deprecated versions, the API includes warning headers:
 
-```javascript
-// v1.x - Legacy authentication
-POST /api/v1/auth/login
-
-// v2.0 - Enhanced authentication
-POST /api/v2/auth/login
+```http
+X-API-Deprecated: true
+X-API-Deprecation-Date: 2024-12-01T00:00:00Z
+X-API-Sunset-Date: 2025-06-01T00:00:00Z
 ```
 
 ## Testing Your Migration
 
-### 1. Version Compatibility Test
+### 1. Automated Testing
 ```javascript
-describe('API Version Compatibility', () => {
-  it('should handle v1.0 requests', async () => {
+// Test both versions during migration
+describe('API Migration Tests', () => {
+  test('V1 authentication still works', async () => {
     const response = await request(app)
       .post('/api/v1/auth/login')
-      .send({ email: 'test@example.com', password: 'password123' });
+      .send({ email: 'test@example.com', password: 'password' });
     
-    expect(response.status).toBe(200);
     expect(response.body.data.token).toBeDefined();
-    expect(response.body.data.accessToken).toBeDefined(); // v1 compatibility
   });
-  
-  it('should handle v2.0 requests', async () => {
+
+  test('V2 authentication provides enhanced features', async () => {
     const response = await request(app)
       .post('/api/v2/auth/login')
-      .send({ 
-        email: 'test@example.com', 
-        password: 'SecurePass123!',
-        deviceInfo: { fingerprint: 'test-device' }
-      });
+      .send({ email: 'test@example.com', password: 'Password123!' });
     
-    expect(response.status).toBe(200);
-    expect(response.body.data.authentication.accessToken).toBeDefined();
     expect(response.body.data.authentication.refreshToken).toBeDefined();
   });
 });
 ```
 
-### 2. Migration Validation Script
+### 2. Gradual Migration Strategy
+1. **Phase 1:** Test V2 endpoints in development
+2. **Phase 2:** Implement V2 authentication in staging
+3. **Phase 3:** Gradually migrate production traffic
+4. **Phase 4:** Monitor and rollback if needed
+
+### 3. Feature Flags
 ```javascript
-const validateMigration = async () => {
-  const tests = [
-    { name: 'Authentication', endpoint: '/auth/login', method: 'POST' },
-    { name: 'User Registration', endpoint: '/auth/register', method: 'POST' },
-    { name: 'Get Offers', endpoint: '/business/offers', method: 'GET' },
-    { name: 'Accept Offer', endpoint: '/rider/offers/123/accept', method: 'POST' }
-  ];
-  
-  for (const test of tests) {
-    try {
-      // Test v1
-      const v1Response = await testEndpoint(`/api/v1${test.endpoint}`, test.method);
-      console.log(`✓ v1 ${test.name}: ${v1Response.status}`);
-      
-      // Test v2
-      const v2Response = await testEndpoint(`/api/v2${test.endpoint}`, test.method);
-      console.log(`✓ v2 ${test.name}: ${v2Response.status}`);
-      
-    } catch (error) {
-      console.error(`✗ ${test.name}: ${error.message}`);
-    }
-  }
-};
+// Use feature flags for gradual rollout
+const useV2Auth = process.env.FEATURE_V2_AUTH === 'true';
+
+const authEndpoint = useV2Auth ? '/api/v2/auth/login' : '/api/v1/auth/login';
 ```
 
-## Migration Checklist
+## Error Handling
 
-### Pre-Migration
-- [ ] Review all breaking changes
-- [ ] Identify affected code areas
-- [ ] Plan migration timeline
-- [ ] Set up testing environment
-- [ ] Backup current implementation
+### Version-Specific Errors
 
-### During Migration
-- [ ] Update authentication handling
-- [ ] Implement token refresh logic
-- [ ] Update error handling
-- [ ] Modify password validation
-- [ ] Update API client configuration
-- [ ] Test each component individually
+| Error Code | V1.0 | V2.0 | Description |
+|------------|------|------|-------------|
+| INVALID_CREDENTIALS | ✅ | ✅ | Wrong email/password |
+| USER_EXISTS | ✅ | ✅ | Email already registered |
+| WEAK_PASSWORD | ❌ | ✅ | Password doesn't meet V2 requirements |
+| ACCOUNT_LOCKED | ❌ | ✅ | Too many failed attempts |
+| INVALID_REFRESH_TOKEN | ❌ | ✅ | Refresh token invalid/expired |
 
-### Post-Migration
-- [ ] Run comprehensive tests
-- [ ] Verify all user flows work
-- [ ] Monitor error rates
-- [ ] Update documentation
-- [ ] Train team on new features
-- [ ] Plan rollback strategy
-
-## Common Migration Issues
-
-### Issue 1: Token Expiration
-**Problem**: v2.0 tokens expire after 1 hour instead of 24 hours  
-**Solution**: Implement automatic token refresh
-
+### Error Response Format
 ```javascript
-const apiClient = {
-  async request(url, options) {
-    let response = await fetch(url, options);
-    
-    if (response.status === 401) {
-      // Try to refresh token
-      await this.refreshToken();
-      response = await fetch(url, options);
-    }
-    
-    return response;
+// Consistent across all versions
+{
+  "success": false,
+  "error": {
+    "message": "Human-readable error message",
+    "code": "MACHINE_READABLE_CODE",
+    "statusCode": 400,
+    "timestamp": "2024-01-01T00:00:00Z",
+    // V2.0 may include additional fields
+    "field": "password",        // Field that caused validation error
+    "requestId": "req-123"      // Request tracking ID
   }
-};
-```
-
-### Issue 2: Password Requirements
-**Problem**: Existing passwords don't meet v2.0 requirements  
-**Solution**: Implement graceful password upgrade
-
-```javascript
-// Force password update on next login for v2.0
-if (apiVersion === 'v2' && !user.passwordMeetsV2Requirements) {
-  return {
-    success: false,
-    error: {
-      code: 'PASSWORD_UPGRADE_REQUIRED',
-      message: 'Please update your password to meet new security requirements'
-    }
-  };
 }
 ```
 
-### Issue 3: Account Lockout
-**Problem**: Users getting locked out due to failed attempts  
-**Solution**: Implement proper lockout handling
+## Best Practices
 
+### 1. Version Pinning
+Always specify the API version explicitly:
 ```javascript
-const handleLoginError = (error) => {
-  if (error.code === 'ACCOUNT_LOCKED') {
-    const unlockTime = new Date(error.unlockTime);
-    const minutes = Math.ceil((unlockTime - Date.now()) / 60000);
-    
-    showMessage(`Account locked. Try again in ${minutes} minutes.`);
+// Good: Explicit version
+const API_BASE = 'https://api.lastmile.com/api/v1';
+
+// Bad: Implicit version (may change)
+const API_BASE = 'https://api.lastmile.com/api';
+```
+
+### 2. Graceful Degradation
+```javascript
+const authenticateUser = async (email, password) => {
+  try {
+    // Try V2 first
+    return await authenticateV2(email, password);
+  } catch (error) {
+    if (error.code === 'UNSUPPORTED_VERSION') {
+      // Fallback to V1
+      return await authenticateV1(email, password);
+    }
+    throw error;
   }
 };
+```
+
+### 3. Monitor API Usage
+```javascript
+// Track version usage
+analytics.track('api_version_used', {
+  version: 'v1',
+  endpoint: '/auth/login',
+  timestamp: new Date()
+});
 ```
 
 ## Support and Resources
 
 ### Getting Help
-- **Documentation**: `/api/docs`
-- **Version Info**: `/api/version`
-- **Migration Guide**: `/api/migration?from=v1&to=v2`
-- **Changelog**: `/api/changelog`
+- **Documentation:** [API Documentation](./API.md)
+- **Migration Support:** Contact our support team
+- **Community:** Join our developer community
 
-### Migration Tools
-- **Version Compatibility Checker**: Test your requests against multiple versions
-- **Migration Validator**: Automated testing of migration completeness
-- **Rollback Scripts**: Quick rollback to previous version if needed
+### Tools
+- **Migration Checker:** Use our automated migration checker tool
+- **Version Compatibility Matrix:** See which features are available in each version
+- **Testing Utilities:** Use our testing helpers for migration validation
 
-### Contact
-For migration support, contact the development team or create an issue in the project repository.
+### Timeline
+- **V1.0 Support:** Ongoing
+- **V1.1 Release:** Q2 2024
+- **V2.0 Beta:** Q3 2024
+- **V2.0 GA:** Q4 2024
 
----
+## Changelog
 
-**Last Updated**: January 2024  
-**Document Version**: 1.0.0
+### V2.0 (Beta)
+- Enhanced authentication security
+- Separate refresh token handling
+- Account lockout protection
+- Improved password requirements
+- Enhanced error reporting
+
+### V1.1 (Planned)
+- Enhanced offer filtering
+- Improved geospatial queries
+- Additional notification types
+- Extended user profiles
+
+### V1.0 (Current)
+- Initial API release
+- Basic authentication
+- Core delivery functionality
+- User management
+- Offer management

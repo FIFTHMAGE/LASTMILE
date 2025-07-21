@@ -22,13 +22,23 @@
     "semver": "^7.7.2"
   },
   "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "npm run build:frontend",
+    "build:frontend": "cd frontend && npm run build",
+    "install:all": "npm install && cd frontend && npm install",
     "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "db:init": "node scripts/initializeDatabase.js",
     "db:optimize": "node scripts/initializeDatabase.js",
     "test:performance": "jest tests/performance --testTimeout=60000",
     "cache:init": "node scripts/initializeCache.js init",
     "cache:cleanup": "node scripts/initializeCache.js cleanup",
     "cache:maintenance": "node scripts/initializeCache.js maintenance",
-    "cache:monitor": "node scripts/initializeCache.js monitor"
+    "cache:monitor": "node scripts/initializeCache.js monitor",
+    "deploy:heroku": "git push heroku main",
+    "deploy:build": "npm run build && npm run db:init",
+    "postinstall": "npm run build:frontend"
   }
 }

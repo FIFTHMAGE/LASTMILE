@@ -83,6 +83,8 @@ const riderDashboardRoutes = require('./routes/riderDashboard');
 // Load version-specific routes
 const authV1Routes = require('./routes/versions/v1/auth');
 const authV2Routes = require('./routes/versions/v2/auth');
+const offerV1Routes = require('./routes/versions/v1/offer');
+const offerV2Routes = require('./routes/versions/v2/offer');
 
 // Version information and migration endpoints
 app.get('/api/version', getVersionInfo);
@@ -92,11 +94,21 @@ app.get('/api/migration', getMigrationGuide);
 app.use('/api/v1/auth', authV1Routes);
 app.use('/api/v2/auth', authV2Routes);
 
-// Versioned route example for authentication
+// Version-specific offer routes
+app.use('/api/v1/offers', offerV1Routes);
+app.use('/api/v2/offers', offerV2Routes);
+
+// Versioned route examples
 app.use('/api/auth', versionedRoute({
   'v1': authV1Routes,
   'v2': authV2Routes,
   'default': authRoutes
+}));
+
+app.use('/api/offers', versionedRoute({
+  'v1': offerV1Routes,
+  'v2': offerV2Routes,
+  'default': offerRoutes
 }));
 
 // Current version routes (default to v1)
