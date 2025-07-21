@@ -33,7 +33,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "echo 'Backend build complete'",
+    "build": "cd frontend && npm install && npm run build",
     "build:frontend": "cd frontend && npm install && npm run build",
     "install:all": "npm install && cd frontend && npm install",
     "test": "jest",
@@ -46,8 +46,6 @@
     "cache:cleanup": "node scripts/initializeCache.js cleanup",
     "cache:maintenance": "node scripts/initializeCache.js maintenance",
     "cache:monitor": "node scripts/initializeCache.js monitor",
-    "deploy:heroku": "git push heroku main",
-    "deploy:build": "npm run build && npm run db:init",
-    "heroku-postbuild": "cd frontend && npm install && npm run build"
+    "deploy:render": "git push origin main"
   }
 }
