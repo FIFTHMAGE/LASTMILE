@@ -5,12 +5,16 @@
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "build"
+        "distDir": "build",
+        "nodeVersion": "18.x"
       }
     },
     {
       "src": "api/index.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "runtime": "nodejs18.x"
+      }
     }
   ],
   "routes": [
@@ -37,6 +41,12 @@
   ],
   "env": {
     "CI": "false",
-    "GENERATE_SOURCEMAP": "false"
+    "GENERATE_SOURCEMAP": "false",
+    "NODE_VERSION": "18"
+  },
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs18.x"
+    }
   }
 }
