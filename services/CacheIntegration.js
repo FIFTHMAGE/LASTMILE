@@ -1,1 +1,136 @@
-/**\n * Cache Integration Service\n * Provides enhanced caching integration for frequently accessed data\n */\n\nconst { cacheStrategies } = require('./CacheStrategies');\nconst { cacheService } = require('./CacheService');\n\n/**\n * Cache Integration Manager\n * Provides high-level caching integration for the delivery platform\n */\nclass CacheIntegration {\n  constructor() {\n    this.cache = cacheService;\n    this.strategies = cacheStrategies;\n    \n    // Performance tracking\n    this.stats = {\n      hits: 0,\n      misses: 0,\n      errors: 0,\n      totalRequests: 0\n    };\n  }\n\n  /**\n   * Enhanced user profile caching with automatic refresh\n   */\n  async getUserProfileWithCache(userId, refreshIfOld = true) {\n    try {\n      this.stats.totalRequests++;\n      \n      // Try cache first\n      let profile = await this.strategies.getUserProfile(userId);\n      \n      if (profile) {\n        this.stats.hits++;\n        \n        // Check if we should refresh (if data is older than 15 minutes)\n        if (refreshIfOld) {\n          const cacheAge = await this.cache.ttl(`user:profile:${userId}`);\n          if (cacheAge < 900) { // Less than 15 minutes remaining\n            // Refresh in background\n            this.refreshUserProfileBackground(userId);\n          }\n        }\n        \n        return profile;\n      }\n      \n      // Cache miss - get from database\n      this.stats.misses++;\n      const User = require('../models/User');\n      const user = await User.findById(userId);\n      \n      if (user) {\n        profile = user.getProfileData ? user.getProfileData() : user.toObject();\n        await this.strategies.setUserProfile(userId, profile);\n        return profile;\n      }\n      \n      return null;\n    } catch (error) {\n      this.stats.errors++;\n      console.error('Cache integration error for user profile:', error);\n      \n      // Fallback to database\n      const User = require('../models/User');\n      const user = await User.findById(userId);\n      return user ? (user.getProfileData ? user.getProfileData() : user.toObject()) : null;\n    }\n  }\n\n  /**\n   * Background refresh for user profile\n   */\n  async refreshUserProfileBackground(userId) {\n    try {\n      const User = require('../models/User');\n      const user = await User.findById(userId);\n      \n      if (user) {\n        const profile = user.getProfileData ? user.getProfileData() : user.toObject();\n        await this.strategies.setUserProfile(userId, profile);\n      }\n    } catch (error) {\n      console.error('Background refresh error:', error);\n    }\n  }\n\n  /**\n   * Enhanced nearby offers caching with location clustering\n   */\n  async getNearbyOffersWithCache(lat, lng, maxDistance, filters = {}) {\n    try {\n      this.stats.totalRequests++;\n      \n      // Round coordinates to reduce cache fragmentation\n      const roundedLat = Math.round(lat * 1000) / 1000; // 3 decimal places (~111m precision)\n      const roundedLng = Math.round(lng * 1000) / 1000;\n      \n      // Try cache first\n      let offers = await this.strategies.getNearbyOffers(roundedLat, roundedLng, maxDistance, filters);\n      \n      if (offers) {\n        this.stats.hits++;\n        return offers;\n      }\n      \n      // Cache miss - get from database\n      this.stats.misses++;\n      const Offer = require('../models/Offer');\n      \n      // Execute the nearby offers query\n      const coordinates = [lng, lat];\n      const pipeline = [\n        {\n          $geoNear: {\n            near: { type: 'Point', coordinates },\n            distanceField: 'distanceFromRider',\n            maxDistance: maxDistance,\n            spherical: true,\n            query: { status: 'open' }\n          }\n        },\n        {\n          $lookup: {\n            from: 'users',\n            localField: 'business',\n            foreignField: '_id',\n            as: 'businessInfo'\n          }\n        },\n        {\n          $addFields: {\n            businessInfo: { $arrayElemAt: ['$businessInfo', 0] }\n          }\n        },\n        { $limit: 50 } // Reasonable limit for caching\n      ];\n      \n      offers = await Offer.aggregate(pipeline);\n      \n      // Cache the result\n      await this.strategies.setNearbyOffers(roundedLat, roundedLng, maxDistance, filters, offers);\n      \n      return offers;\n    } catch (error) {\n      this.stats.errors++;\n      console.error('Cache integration error for nearby offers:', error);\n      \n      // Fallback to direct database query\n      const Offer = require('../models/Offer');\n      const coordinates = [lng, lat];\n      const pipeline = [\n        {\n          $geoNear: {\n            near: { type: 'Point', coordinates },\n            distanceField: 'distanceFromRider',\n            maxDistance: maxDistance,\n            spherical: true,\n            query: { status: 'open' }\n          }\n        },\n        { $limit: 50 }\n      ];\n      \n      return await Offer.aggregate(pipeline);\n    }\n  }\n\n  /**\n   * Enhanced business offers caching with smart invalidation\n   */\n  async getBusinessOffersWithCache(businessId, status = null, page = 1) {\n    try {\n      this.stats.totalRequests++;\n      \n      // Try cache first (only for first page)\n      if (page === 1) {\n        let offers = await this.strategies.getBusinessOffers(businessId, status);\n        \n        if (offers) {\n          this.stats.hits++;\n          return offers;\n        }\n      }\n      \n      // Cache miss - get from database\n      this.stats.misses++;\n      const Offer = require('../models/Offer');\n      \n      const query = { business: businessId };\n      if (status) query.status = status;\n      \n      const offers = await Offer.find(query)\n        .populate('acceptedBy', 'name profile.phone profile.vehicleType profile.rating')\n        .sort({ createdAt: -1 })\n        .limit(50);\n      \n      // Cache only first page results\n      if (page === 1) {\n        await this.strategies.setBusinessOffers(businessId, offers, status);\n      }\n      \n      return offers;\n    } catch (error) {\n      this.stats.errors++;\n      console.error('Cache integration error for business offers:', error);\n      \n      // Fallback to direct database query\n      const Offer = require('../models/Offer');\n      const query = { business: businessId };\n      if (status) query.status = status;\n      \n      return await Offer.find(query)\n        .populate('acceptedBy', 'name profile.phone profile.vehicleType profile.rating')\n        .sort({ createdAt: -1 })\n        .limit(50);\n    }\n  }\n\n  /**\n   * Enhanced rider earnings caching with period-based keys\n   */\n  async getRiderEarningsWithCache(riderId, period = 'all') {\n    try {\n      this.stats.totalRequests++;\n      \n      // Try cache first\n      let earnings = await this.strategies.getRiderEarnings(riderId, period);\n      \n      if (earnings) {\n        this.stats.hits++;\n        return earnings;\n      }\n      \n      // Cache miss - calculate from database\n      this.stats.misses++;\n      const Payment = require('../models/Payment');\n      \n      let dateFilter = {};\n      const now = new Date();\n      \n      switch (period) {\n        case 'today':\n          dateFilter = {\n            $gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),\n            $lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)\n          };\n          break;\n        case 'week':\n          const weekStart = new Date(now);\n          weekStart.setDate(now.getDate() - now.getDay());\n          weekStart.setHours(0, 0, 0, 0);\n          dateFilter = { $gte: weekStart };\n          break;\n        case 'month':\n          dateFilter = {\n            $gte: new Date(now.getFullYear(), now.getMonth(), 1)\n          };\n          break;\n        case 'year':\n          dateFilter = {\n            $gte: new Date(now.getFullYear(), 0, 1)\n          };\n          break;\n      }\n      \n      const query = { rider: riderId, status: 'completed' };\n      if (Object.keys(dateFilter).length > 0) {\n        query.processedAt = dateFilter;\n      }\n      \n      const payments = await Payment.find(query);\n      \n      earnings = {\n        totalEarnings: payments.reduce((sum, p) => sum + (p.riderEarnings || 0), 0),\n        totalDeliveries: payments.length,\n        averageEarning: payments.length > 0 ? \n          payments.reduce((sum, p) => sum + (p.riderEarnings || 0), 0) / payments.length : 0,\n        period,\n        lastUpdated: new Date()\n      };\n      \n      // Cache the result\n      await this.strategies.setRiderEarnings(riderId, earnings, period);\n      \n      return earnings;\n    } catch (error) {\n      this.stats.errors++;\n      console.error('Cache integration error for rider earnings:', error);\n      \n      // Return basic fallback\n      return {\n        totalEarnings: 0,\n        totalDeliveries: 0,\n        averageEarning: 0,\n        period,\n        error: 'Unable to calculate earnings'\n      };\n    }\n  }\n\n  /**\n   * Enhanced notification caching with unread count optimization\n   */\n  async getUserNotificationsWithCache(userId, filters = {}) {\n    try {\n      this.stats.totalRequests++;\n      \n      // Try cache first\n      let notifications = await this.strategies.getUserNotifications(userId, filters);\n      \n      if (notifications) {\n        this.stats.hits++;\n        return notifications;\n      }\n      \n      // Cache miss - get from database\n      this.stats.misses++;\n      const Notification = require('../models/Notification');\n      \n      const query = { user: userId };\n      if (filters.isRead !== undefined) query.read = filters.isRead;\n      if (filters.type) query.type = filters.type;\n      \n      notifications = await Notification.find(query)\n        .sort({ createdAt: -1 })\n        .limit(50);\n      \n      // Cache the result\n      await this.strategies.setUserNotifications(userId, notifications, filters);\n      \n      // Also cache unread count if not filtered\n      if (!filters.isRead && !filters.type) {\n        const unreadCount = notifications.filter(n => !n.read).length;\n        await this.strategies.setUnreadNotificationCount(userId, unreadCount);\n      }\n      \n      return notifications;\n    } catch (error) {\n      this.stats.errors++;\n      console.error('Cache integration error for notifications:', error);\n      \n      // Fallback to direct database query\n      const Notification = require('../models/Notification');\n      const query = { user: userId };\n      if (filters.isRead !== undefined) query.read = filters.isRead;\n      if (filters.type) query.type = filters.type;\n      \n      return await Notification.find(query)\n        .sort({ createdAt: -1 })\n        .limit(50);\n    }\n  }\n\n  /**\n   * Smart cache invalidation after data changes\n   */\n  async invalidateRelatedCaches(operation, data) {\n    try {\n      switch (operation) {\n        case 'offer_created':\n        case 'offer_updated':\n          await this.strategies.invalidateOffer(data.offerId, data.businessId, data.riderId);\n          await this.cache.clearPattern('offers:nearby:*');\n          await this.strategies.invalidateAvailableRiders();\n          break;\n          \n        case 'offer_accepted':\n          await this.strategies.invalidateOffer(data.offerId, data.businessId, data.riderId);\n          await this.strategies.invalidateRiderOffers(data.riderId);\n          await this.cache.clearPattern('offers:nearby:*');\n          break;\n          \n        case 'payment_completed':\n          await this.strategies.invalidatePayment(data.paymentId, data.businessId, data.riderId);\n          await this.strategies.invalidateRiderEarnings(data.riderId);\n          await this.strategies.invalidateBusinessEarnings(data.businessId);\n          break;\n          \n        case 'user_updated':\n          await this.strategies.invalidateUserProfile(data.userId);\n          if (data.role === 'rider') {\n            await this.strategies.invalidateAvailableRiders();\n          }\n          break;\n          \n        case 'notification_created':\n          await this.strategies.invalidateUserNotifications(data.userId);\n          break;\n      }\n    } catch (error) {\n      console.error('Cache invalidation error:', error);\n    }\n  }\n\n  /**\n   * Batch cache warming for frequently accessed data\n   */\n  async warmUpFrequentData() {\n    try {\n      console.log('Starting cache warm-up...');\n      \n      // Warm up active users\n      const User = require('../models/User');\n      const activeUsers = await User.find({ \n        $or: [\n          { 'profile.isAvailable': true },\n          { lastLoginAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }\n        ]\n      }).limit(100);\n      \n      for (const user of activeUsers) {\n        await this.strategies.setUserProfile(user._id.toString(), \n          user.getProfileData ? user.getProfileData() : user.toObject());\n      }\n      \n      // Warm up recent offers\n      const Offer = require('../models/Offer');\n      const recentOffers = await Offer.find({ \n        status: 'open',\n        createdAt: { $gte: new Date(Date.now() - 2 * 60 * 60 * 1000) } // Last 2 hours\n      }).limit(50);\n      \n      for (const offer of recentOffers) {\n        await this.strategies.setOffer(offer._id.toString(), offer.toObject());\n      }\n      \n      console.log(`Cache warm-up completed: ${activeUsers.length} users, ${recentOffers.length} offers`);\n    } catch (error) {\n      console.error('Cache warm-up error:', error);\n    }\n  }\n\n  /**\n   * Cache performance monitoring\n   */\n  getPerformanceStats() {\n    const hitRate = this.stats.totalRequests > 0 ? \n      (this.stats.hits / this.stats.totalRequests * 100).toFixed(2) : 0;\n    \n    return {\n      ...this.stats,\n      hitRate: `${hitRate}%`,\n      errorRate: this.stats.totalRequests > 0 ? \n        (this.stats.errors / this.stats.totalRequests * 100).toFixed(2) + '%' : '0%'\n    };\n  }\n\n  /**\n   * Reset performance statistics\n   */\n  resetStats() {\n    this.stats = {\n      hits: 0,\n      misses: 0,\n      errors: 0,\n      totalRequests: 0\n    };\n  }\n\n  /**\n   * Health check for cache integration\n   */\n  async healthCheck() {\n    try {\n      const cacheHealth = await this.cache.healthCheck();\n      const stats = this.getPerformanceStats();\n      \n      return {\n        status: cacheHealth.status,\n        cache: cacheHealth,\n        performance: stats,\n        timestamp: new Date()\n      };\n    } catch (error) {\n      return {\n        status: 'unhealthy',\n        error: error.message,\n        timestamp: new Date()\n      };\n    }\n  }\n}\n\n// Create singleton instance\nconst cacheIntegration = new CacheIntegration();\n\nmodule.exports = {\n  CacheIntegration,\n  cacheIntegration\n};"
+/**
+ * Cache Integration Service
+ * Provides enhanced caching integration for frequently accessed data
+ */
+
+const { cacheStrategies } = require('./CacheStrategies');
+const { cacheService } = require('./CacheService');
+
+/**
+ * Cache Integration Manager
+ * Provides high-level caching integration for the delivery platform
+ */
+class CacheIntegration {
+  constructor() {
+    this.cache = cacheService;
+    this.strategies = cacheStrategies;
+    
+    // Performance tracking
+    this.stats = {
+      hits: 0,
+      misses: 0,
+      errors: 0,
+      totalRequests: 0
+    };
+  }
+
+  /**
+   * Batch cache warming for frequently accessed data
+   */
+  async warmUpFrequentData() {
+    try {
+      console.log('Starting cache warm-up...');
+      
+      // Check if database is connected first
+      const mongoose = require('mongoose');
+      if (mongoose.connection.readyState !== 1) {
+        console.log('Database not connected, skipping cache warm-up');
+        return;
+      }
+
+      // Warm up active users (with error handling)
+      try {
+        const User = require('../models/User');
+        const activeUsers = await User.find({ 
+          $or: [
+            { 'profile.isAvailable': true },
+            { updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
+          ]
+        }).limit(10); // Reduced limit for initial warm-up
+        
+        for (const user of activeUsers) {
+          try {
+            const profile = user.getProfileData ? user.getProfileData() : user.toObject();
+            await this.strategies.setUserProfile(user._id.toString(), profile);
+          } catch (userError) {
+            console.warn('User profile cache error:', userError.message);
+          }
+        }
+        
+        console.log(`Cache warm-up completed: ${activeUsers.length} users cached`);
+      } catch (userError) {
+        console.warn('User warm-up failed:', userError.message);
+      }
+
+      // Warm up recent offers (with error handling)
+      try {
+        const Offer = require('../models/Offer');
+        const recentOffers = await Offer.find({ 
+          status: 'open',
+          createdAt: { $gte: new Date(Date.now() - 2 * 60 * 60 * 1000) }
+        }).limit(10); // Reduced limit
+        
+        for (const offer of recentOffers) {
+          try {
+            await this.strategies.setOffer(offer._id.toString(), offer.toObject());
+          } catch (offerError) {
+            console.warn('Offer cache error:', offerError.message);
+          }
+        }
+        
+        console.log(`Cache warm-up completed: ${recentOffers.length} offers cached`);
+      } catch (offerError) {
+        console.warn('Offer warm-up failed:', offerError.message);
+      }
+      
+    } catch (error) {
+      console.error('Cache warm-up error:', error.message);
+    }
+  }
+
+  /**
+   * Cache performance monitoring
+   */
+  getPerformanceStats() {
+    const hitRate = this.stats.totalRequests > 0 ? 
+      (this.stats.hits / this.stats.totalRequests * 100).toFixed(2) : 0;
+    
+    return {
+      ...this.stats,
+      hitRate: `${hitRate}%`,
+      errorRate: this.stats.totalRequests > 0 ? 
+        (this.stats.errors / this.stats.totalRequests * 100).toFixed(2) + '%' : '0%'
+    };
+  }
+
+  /**
+   * Health check for cache integration
+   */
+  async healthCheck() {
+    try {
+      const cacheHealth = await this.cache.healthCheck();
+      const stats = this.getPerformanceStats();
+      
+      return {
+        status: cacheHealth.status,
+        cache: cacheHealth,
+        performance: stats,
+        timestamp: new Date()
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        error: error.message,
+        timestamp: new Date()
+      };
+    }
+  }
+}
+
+// Create singleton instance
+const cacheIntegration = new CacheIntegration();
+
+module.exports = {
+  CacheIntegration,
+  cacheIntegration
+};
