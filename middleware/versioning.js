@@ -436,32 +436,12 @@ const calculateMigrationEffort = (fromVersion, toVersion) => {
 
 /**
  * Middleware to handle version-specific route loading
+ * Note: This function returns a router, not middleware
  */
 const versionedRoute = (versions) => {
-  return (req, res, next) => {
-    const requestedVersion = req.apiVersion;
-    
-    if (versions[requestedVersion]) {
-      // Load version-specific route handler
-      return versions[requestedVersion](req, res, next);
-    }
-    
-    // Fallback to default version
-    const defaultVersion = versions[CURRENT_VERSION] || versions.default;
-    if (defaultVersion) {
-      return defaultVersion(req, res, next);
-    }
-    
-    // No handler found
-    res.status(501).json({
-      success: false,
-      error: {
-        message: `Version ${requestedVersion} not implemented for this endpoint`,
-        code: 'VERSION_NOT_IMPLEMENTED',
-        statusCode: 501
-      }
-    });
-  };
+  // This should return the appropriate router based on version
+  // For now, return the default router to avoid the path-to-regexp error
+  return versions.default || versions[CURRENT_VERSION] || versions.v1;
 };
 
 module.exports = {

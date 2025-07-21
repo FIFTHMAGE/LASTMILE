@@ -100,18 +100,9 @@ app.use('/api/v2/auth', authV2Routes);
 app.use('/api/v1/offers', offerV1Routes);
 app.use('/api/v2/offers', offerV2Routes);
 
-// Versioned route examples
-app.use('/api/auth', versionedRoute({
-  'v1': authV1Routes,
-  'v2': authV2Routes,
-  'default': authRoutes
-}));
-
-app.use('/api/offers', versionedRoute({
-  'v1': offerV1Routes,
-  'v2': offerV2Routes,
-  'default': offerRoutes
-}));
+// Default routes (fallback to current routes)
+app.use('/api/auth', authRoutes);
+app.use('/api/offers', offerRoutes);
 
 // Current version routes (default to v1)
 app.use('/api/offers', warmCache, offerRoutes);
