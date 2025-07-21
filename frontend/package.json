@@ -29,7 +29,8 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "GENERATE_SOURCEMAP=false CI=false react-scripts build",
+    "build:production": "node build-production.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

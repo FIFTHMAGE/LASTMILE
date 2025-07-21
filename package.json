@@ -33,7 +33,7 @@
   "scripts": {
     "start": "node server-minimal.js",
     "dev": "nodemon server.js",
-    "build": "cd frontend && npm install && CI=false npm run build",
+    "build": "cd frontend && npm install && GENERATE_SOURCEMAP=false CI=false npm run build",
     "build:frontend": "cd frontend && npm install && npm run build",
     "install:all": "npm install && cd frontend && npm install",
     "test": "jest",
