@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 // const ErrorHandler = require('./middleware/errorHandler').ErrorHandler;
 const { sanitizeInput } = require('./middleware/validation');
 const { rateLimiters } = require('./middleware/rateLimiter');
@@ -33,12 +34,13 @@ app.use('/api/', rateLimiters.general);
 
 // MongoDB connection
 if (process.env.NODE_ENV !== 'test') {
-  mongoose.connect(process.env.MONGO_URI, {
+  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  mongoose.connect(mongoUri, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+  .then(() => console.log('✅ MongoDB connected successfully'))
+  .catch((err) => console.error('❌ MongoDB connection error:', err));
 }
 
 // Initialize Redis cache connection
@@ -120,21 +122,35 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/business', warmCache, businessDashboardRoutes);
 app.use('/api/rider', warmCache, riderDashboardRoutes);
 
-app.get('/', (req, res) => {
-  res.send('Last Mile API is running');
+// Serve static files from React build
+app.use(express.static(path.join(__dirname, 'frontend/build')));
+
+// API health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    message: 'Last Mile API is running',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
 });
 
-// Error handling middleware (must be last)
-app.use((req, res, next) => {
+// API 404 handler (only for API routes)
+app.use('/api/*', (req, res, next) => {
   res.status(404).json({
     success: false,
     error: {
-      message: `Route ${req.originalUrl} not found`,
+      message: `API route ${req.originalUrl} not found`,
       code: 'NOT_FOUND',
       statusCode: 404,
       timestamp: new Date().toISOString()
     }
   });
+});
+
+// Serve React app for all non-API routes (must be after API routes)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend/build', 'index.html'));
 });
 
 app.use((err, req, res, next) => {
