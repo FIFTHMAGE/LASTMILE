@@ -28,15 +28,15 @@
     },
     {
       "src": "/static/(.*)",
-      "dest": "/frontend/build/static/$1"
+      "dest": "/static/$1"
     },
     {
       "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|svg|ico|json|txt|woff|woff2|ttf|eot))",
-      "dest": "/frontend/build/$1"
+      "dest": "/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "/frontend/build/index.html"
+      "dest": "/index.html"
     }
   ],
   "env": {
