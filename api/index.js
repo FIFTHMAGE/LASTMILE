@@ -3,7 +3,12 @@ const cors = require('cors');
 const app = express();
 
 // Basic middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://lastmile-delivery-platform.vercel.app', /\.vercel\.app$/] 
+    : 'http://localhost:3000',
+  credentials: true
+}));
 app.use(express.json());
 
 // Health check
