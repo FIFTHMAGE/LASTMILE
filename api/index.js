@@ -281,6 +281,81 @@ app.get('/api/notifications', (req, res) => {
   });
 });
 
+// Admin endpoints
+app.get('/api/admin/stats', (req, res) => {
+  // Generate realistic statistics for the admin dashboard
+  const currentDate = new Date();
+  const days = 7;
+  
+  // Generate daily data for the past week
+  const dailyData = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(currentDate);
+    date.setDate(date.getDate() - i);
+    
+    // Generate increasing trend with some randomness
+    const baseRevenue = 600 + (i * 200);
+    const revenue = i === days - 1 
+      ? baseRevenue + 600 // Big jump on last day
+      : baseRevenue + Math.floor(Math.random() * 100);
+    
+    const baseOffers = 20 + (i * 5);
+    const offers = baseOffers + Math.floor(Math.random() * 10);
+    
+    dailyData.push({
+      date: date.toISOString().split('T')[0],
+      formattedDate: format(date, 'MMM dd'),
+      offers,
+      revenue,
+      users: Math.floor(Math.random() * 10) + 5
+    });
+  }
+  
+  // Format date function
+  function format(date, formatStr) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = date.getDate().toString().padStart(2, '0');
+    return formatStr.replace('MMM', months[date.getMonth()]).replace('dd', day);
+  }
+  
+  const stats = {
+    users: {
+      total: 256,
+      businesses: 87,
+      riders: 169,
+      active: 142,
+      newThisMonth: 24
+    },
+    offers: {
+      total: 1893,
+      open: 42,
+      inProgress: 28,
+      completed: 1782,
+      cancelled: 41,
+      completionRate: 94
+    },
+    payments: {
+      totalVolume: 47850,
+      thisMonth: 12450,
+      avgOrderValue: 25.28,
+      platformRevenue: 4785
+    },
+    performance: {
+      avgDeliveryTime: 28,
+      avgRiderRating: 4.7,
+      avgBusinessRating: 4.5
+    },
+    charts: {
+      daily: dailyData
+    }
+  };
+  
+  res.json({
+    success: true,
+    data: stats
+  });
+});
+
 // Catch all API routes
 app.use('/api/*', (req, res) => {
   res.status(404).json({

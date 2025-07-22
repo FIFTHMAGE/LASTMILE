@@ -31,23 +31,8 @@ const AdminDashboard = () => {
     }
   };
 
-  // Mock chart data - in a real app, this would come from the API
-  const generateChartData = () => {
-    const days = 7;
-    const data = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const date = subDays(new Date(), i);
-      data.push({
-        date: format(date, 'MMM dd'),
-        offers: Math.floor(Math.random() * 50) + 20,
-        revenue: Math.floor(Math.random() * 2000) + 500,
-        users: Math.floor(Math.random() * 20) + 5
-      });
-    }
-    return data;
-  };
-
-  const chartData = generateChartData();
+  // Use real chart data from the API
+  const chartData = stats?.charts?.daily || [];
 
   const pieData = stats ? [
     { name: 'Completed', value: stats.offers?.completed || 0, color: '#10B981' },
