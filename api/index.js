@@ -490,6 +490,106 @@ app.patch('/api/notifications/mark-all-read', (req, res) => {
   });
 });
 
+// Business dashboard overview
+app.get('/api/business/overview', (req, res) => {
+  // Generate realistic business dashboard data
+  const currentDate = new Date();
+  
+  // Overview statistics
+  const overview = {
+    totalOffers: 48,
+    activeOffers: 5,
+    completedOffers: 42,
+    cancelledOffers: 1,
+    totalSpent: 1245.50,
+    thisMonthSpent: 325.75,
+    avgDeliveryTime: 32,
+    onTimeRate: 94,
+    newOffersThisMonth: 12,
+    completionRate: 87
+  };
+  
+  // Recent offers
+  const recentOffers = [
+    {
+      id: 1001,
+      title: 'Urgent Document Delivery',
+      status: 'delivered',
+      createdAt: new Date(currentDate.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      pickup: { address: 'Downtown Office, New York' },
+      delivery: { address: 'Midtown Client, New York' },
+      payment: { amount: 35.50 },
+      rider: { id: 2001, name: 'John Rider' }
+    },
+    {
+      id: 1002,
+      title: 'Package Delivery',
+      status: 'in_transit',
+      createdAt: new Date(currentDate.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      pickup: { address: 'Main Warehouse, Brooklyn' },
+      delivery: { address: 'Customer Address, Queens' },
+      payment: { amount: 42.75 },
+      rider: { id: 2002, name: 'Sarah Rider' }
+    },
+    {
+      id: 1003,
+      title: 'Express Parcel',
+      status: 'accepted',
+      createdAt: new Date().toISOString(),
+      pickup: { address: 'Office HQ, Manhattan' },
+      delivery: { address: 'Client Office, Bronx' },
+      payment: { amount: 28.90 },
+      rider: { id: 2003, name: 'Mike Rider' }
+    },
+    {
+      id: 1004,
+      title: 'Fragile Item Delivery',
+      status: 'open',
+      createdAt: new Date().toISOString(),
+      pickup: { address: 'Storage Facility, Staten Island' },
+      delivery: { address: 'Residential Address, Manhattan' },
+      payment: { amount: 55.00 }
+    }
+  ];
+  
+  // Monthly trends
+  const monthlyTrends = [
+    {
+      month: 'January',
+      offers: 32,
+      totalSpent: 845.25,
+      completionRate: 91
+    },
+    {
+      month: 'February',
+      offers: 28,
+      totalSpent: 765.50,
+      completionRate: 89
+    },
+    {
+      month: 'March',
+      offers: 35,
+      totalSpent: 925.75,
+      completionRate: 94
+    },
+    {
+      month: 'April',
+      offers: 42,
+      totalSpent: 1125.30,
+      completionRate: 92
+    }
+  ];
+  
+  res.json({
+    success: true,
+    data: {
+      overview,
+      recentOffers,
+      monthlyTrends
+    }
+  });
+});
+
 // Business dashboard endpoint
 app.get('/api/business/overview', (req, res) => {
   // Generate realistic business dashboard data
@@ -573,6 +673,168 @@ app.get('/api/business/overview', (req, res) => {
       overview,
       recentOffers,
       monthlyTrends
+    }
+  });
+});
+
+// Business offers endpoint
+app.get('/api/business/offers', (req, res) => {
+  // Generate realistic business offers data
+  const currentDate = new Date();
+  const offers = [];
+  
+  // Generate 20 offers with different statuses
+  const statuses = ['open', 'accepted', 'picked_up', 'in_transit', 'delivered', 'cancelled'];
+  const titles = [
+    'Urgent Document Delivery',
+    'Package Delivery',
+    'Express Parcel',
+    'Fragile Item Delivery',
+    'Food Delivery',
+    'Grocery Delivery',
+    'Medical Supplies',
+    'Electronics Delivery',
+    'Gift Delivery',
+    'Office Supplies'
+  ];
+  
+  const pickupLocations = [
+    'Downtown Office, New York',
+    'Main Warehouse, Brooklyn',
+    'Office HQ, Manhattan',
+    'Storage Facility, Staten Island',
+    'Distribution Center, Queens'
+  ];
+  
+  const deliveryLocations = [
+    'Midtown Client, New York',
+    'Customer Address, Queens',
+    'Client Office, Bronx',
+    'Residential Address, Manhattan',
+    'Business Park, Brooklyn'
+  ];
+  
+  for (let i = 0; i < 20; i++) {
+    const daysAgo = Math.floor(Math.random() * 30);
+    const status = statuses[Math.floor(Math.random() * statuses.length)];
+    const hasRider = status !== 'open';
+    
+    offers.push({
+      id: 1000 + i,
+      title: titles[Math.floor(Math.random() * titles.length)],
+      status,
+      createdAt: new Date(currentDate.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+      pickup: { 
+        address: pickupLocations[Math.floor(Math.random() * pickupLocations.length)],
+        coordinates: [-73.9857 + (Math.random() * 0.1), 40.7484 + (Math.random() * 0.1)]
+      },
+      delivery: { 
+        address: deliveryLocations[Math.floor(Math.random() * deliveryLocations.length)],
+        coordinates: [-73.9857 + (Math.random() * 0.1), 40.7484 + (Math.random() * 0.1)]
+      },
+      payment: { 
+        amount: 20 + Math.floor(Math.random() * 50),
+        method: 'credit_card'
+      },
+      rider: hasRider ? {
+        id: 2000 + Math.floor(Math.random() * 10),
+        name: ['John', 'Sarah', 'Mike', 'Emily', 'David'][Math.floor(Math.random() * 5)] + ' Rider'
+      } : null
+    });
+  }
+  
+  // Sort by creation date (newest first)
+  offers.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  
+  // Pagination
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
+  
+  const paginatedOffers = offers.slice(startIndex, endIndex);
+  
+  res.json({
+    success: true,
+    data: {
+      offers: paginatedOffers,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(offers.length / limit),
+        totalOffers: offers.length,
+        hasNext: endIndex < offers.length,
+        hasPrev: page > 1
+      }
+    }
+  });
+});
+
+// Business earnings endpoint
+app.get('/api/business/earnings', (req, res) => {
+  // Generate realistic earnings data
+  const currentDate = new Date();
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+  
+  // Monthly spending data
+  const monthlySpending = [];
+  for (let i = 5; i >= 0; i--) {
+    const date = new Date(currentDate);
+    date.setMonth(date.getMonth() - i);
+    
+    monthlySpending.push({
+      month: monthNames[date.getMonth()],
+      year: date.getFullYear(),
+      totalSpent: 500 + Math.floor(Math.random() * 1000),
+      deliveryCount: 15 + Math.floor(Math.random() * 30),
+      avgDeliveryTime: 25 + Math.floor(Math.random() * 15)
+    });
+  }
+  
+  // Recent transactions
+  const transactions = [];
+  const transactionTypes = ['delivery_payment', 'refund', 'subscription_fee'];
+  
+  for (let i = 0; i < 10; i++) {
+    const daysAgo = Math.floor(Math.random() * 30);
+    const type = transactionTypes[Math.floor(Math.random() * transactionTypes.length)];
+    const amount = type === 'refund' ? -(10 + Math.floor(Math.random() * 20)) : (20 + Math.floor(Math.random() * 50));
+    
+    transactions.push({
+      id: 3000 + i,
+      type,
+      amount,
+      date: new Date(currentDate.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+      description: type === 'delivery_payment' 
+        ? 'Payment for delivery #' + (1000 + Math.floor(Math.random() * 1000))
+        : type === 'refund'
+        ? 'Refund for cancelled delivery'
+        : 'Monthly subscription fee'
+    });
+  }
+  
+  // Sort transactions by date (newest first)
+  transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+  
+  // Summary statistics
+  const summary = {
+    totalSpent: 4850.75,
+    thisMonthSpent: 845.50,
+    lastMonthSpent: 765.25,
+    yearToDateSpent: 3245.80,
+    avgDeliveryCost: 32.50,
+    deliveryCount: 149,
+    activeSubscription: true,
+    subscriptionType: 'business_pro',
+    subscriptionCost: 49.99
+  };
+  
+  res.json({
+    success: true,
+    data: {
+      summary,
+      monthlySpending,
+      transactions
     }
   });
 });
