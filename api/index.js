@@ -490,6 +490,93 @@ app.patch('/api/notifications/mark-all-read', (req, res) => {
   });
 });
 
+// Business dashboard endpoint
+app.get('/api/business/overview', (req, res) => {
+  // Generate realistic business dashboard data
+  const currentDate = new Date();
+  
+  // Overview statistics
+  const overview = {
+    totalOffers: 42,
+    activeOffers: 8,
+    newOffersThisMonth: 12,
+    completionRate: 92,
+    totalSpent: 1250.75,
+    thisMonthSpent: 350.25,
+    avgDeliveryTime: 32,
+    onTimeRate: 95
+  };
+  
+  // Recent offers
+  const recentOffers = [
+    {
+      id: 1001,
+      title: 'Urgent Document Delivery',
+      status: 'delivered',
+      createdAt: new Date(currentDate.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      pickup: { address: 'Downtown Office, New York' },
+      payment: { amount: 35.50 },
+      rider: { name: 'John Smith', rating: 4.8 }
+    },
+    {
+      id: 1002,
+      title: 'Package Delivery to Client',
+      status: 'in_transit',
+      createdAt: new Date(currentDate.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      pickup: { address: 'Main St Office, Brooklyn' },
+      payment: { amount: 28.75 },
+      rider: { name: 'Maria Rodriguez', rating: 4.9 }
+    },
+    {
+      id: 1003,
+      title: 'Express Parcel Delivery',
+      status: 'accepted',
+      createdAt: new Date().toISOString(),
+      pickup: { address: 'Corporate HQ, Manhattan' },
+      payment: { amount: 42.00 }
+    },
+    {
+      id: 1004,
+      title: 'Same-day Document Delivery',
+      status: 'open',
+      createdAt: new Date().toISOString(),
+      pickup: { address: 'Financial District, Manhattan' },
+      payment: { amount: 30.00 }
+    }
+  ];
+  
+  // Monthly trends
+  const monthlyTrends = [
+    {
+      month: 'July',
+      offers: 15,
+      totalSpent: 425.50,
+      completionRate: 93
+    },
+    {
+      month: 'June',
+      offers: 12,
+      totalSpent: 380.25,
+      completionRate: 91
+    },
+    {
+      month: 'May',
+      offers: 18,
+      totalSpent: 520.75,
+      completionRate: 94
+    }
+  ];
+  
+  res.json({
+    success: true,
+    data: {
+      overview,
+      recentOffers,
+      monthlyTrends
+    }
+  });
+});
+
 // Admin endpoints
 app.get('/api/admin/stats', (req, res) => {
   // Generate realistic statistics for the admin dashboard

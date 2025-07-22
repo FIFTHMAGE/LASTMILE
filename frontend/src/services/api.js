@@ -48,7 +48,7 @@ export const authAPI = {
 
 // Business API
 export const businessAPI = {
-  getDashboard: () => api.get('/business/overview'),
+  getDashboard: (params) => api.get('/business/overview', { params }),
   getOffers: (params) => api.get('/business/offers', { params }),
   createOffer: (offerData) => api.post('/business/offers', offerData),
   getOffer: (offerId) => api.get(`/business/offers/${offerId}`),
