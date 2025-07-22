@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { commonAPI } from '../../services/api';
 import { Button, Card, Badge, LoadingSpinner, Select } from '../../components/UI';
-import { Bell, Check, CheckCheck, Trash2, Filter, Package, DollarSign, AlertCircle, Info } from 'lucide-react';
+import { 
+  Bell, Check, CheckCheck, Trash2, Filter, Package, DollarSign, 
+  AlertCircle, Info, Users, TrendingUp 
+} from 'lucide-react';
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 
