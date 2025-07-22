@@ -264,20 +264,229 @@ app.post('/api/offers', (req, res) => {
 
 // Notifications endpoint
 app.get('/api/notifications', (req, res) => {
-  const notifications = [
-    {
-      id: 1,
-      type: 'offer_accepted',
-      title: 'Offer Accepted',
-      message: 'Your delivery offer has been accepted by a rider',
-      read: false,
-      createdAt: new Date().toISOString()
+  // Extract user role from token
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  let userRole = 'business'; // Default role
+  
+  if (token && token.startsWith('demo.')) {
+    try {
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+        userRole = payload.role;
+      }
+    } catch (error) {
+      console.error('Error parsing token:', error);
     }
-  ];
+  }
+  
+  // Current date for timestamps
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const twoDaysAgo = new Date(now);
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+  const threeDaysAgo = new Date(now);
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  
+  // Generate notifications based on user role
+  let notifications = [];
+  
+  if (userRole === 'admin') {
+    // Admin-specific notifications
+    notifications = [
+      {
+        id: 101,
+        type: 'system_announcement',
+        title: 'System Update Completed',
+        message: 'The platform has been updated to version 2.3.0 with new features and bug fixes.',
+        read: false,
+        createdAt: now.toISOString(),
+        priority: 'high'
+      },
+      {
+        id: 102,
+        type: 'user_registration',
+        title: 'New Business Registration',
+        message: 'A new business "Express Logistics" has registered and requires verification.',
+        read: false,
+        createdAt: yesterday.toISOString(),
+        user: {
+          id: 2001,
+          name: 'Express Logistics',
+          email: 'contact@expresslogistics.com'
+        }
+      },
+      {
+        id: 103,
+        type: 'payment_issue',
+        title: 'Payment Processing Error',
+        message: 'Multiple failed payment attempts detected for transaction #38291.',
+        read: false,
+        createdAt: yesterday.toISOString(),
+        payment: {
+          id: 38291,
+          amount: 125.50,
+          method: 'credit_card'
+        }
+      },
+      {
+        id: 104,
+        type: 'platform_metrics',
+        title: 'Weekly Performance Report',
+        message: 'Platform usage increased by 15% this week. View the full analytics report.',
+        read: true,
+        createdAt: twoDaysAgo.toISOString(),
+        readAt: yesterday.toISOString()
+      },
+      {
+        id: 105,
+        type: 'support_ticket',
+        title: 'Urgent Support Request',
+        message: 'A rider has reported an issue with the GPS tracking feature. Ticket #4582.',
+        read: true,
+        createdAt: twoDaysAgo.toISOString(),
+        readAt: yesterday.toISOString(),
+        ticket: {
+          id: 4582,
+          priority: 'high'
+        }
+      },
+      {
+        id: 106,
+        type: 'security_alert',
+        title: 'Multiple Failed Login Attempts',
+        message: 'Multiple failed login attempts detected for admin account. IP: 192.168.1.254',
+        read: true,
+        createdAt: threeDaysAgo.toISOString(),
+        readAt: twoDaysAgo.toISOString(),
+        priority: 'critical'
+      },
+      {
+        id: 107,
+        type: 'system_announcement',
+        title: 'Scheduled Maintenance',
+        message: 'The platform will undergo scheduled maintenance on July 25, 2025, from 2:00 AM to 4:00 AM UTC.',
+        read: true,
+        createdAt: threeDaysAgo.toISOString(),
+        readAt: twoDaysAgo.toISOString()
+      }
+    ];
+  } else if (userRole === 'business') {
+    // Business-specific notifications
+    notifications = [
+      {
+        id: 1,
+        type: 'offer_accepted',
+        title: 'Offer Accepted',
+        message: 'Your delivery offer has been accepted by a rider',
+        read: false,
+        createdAt: now.toISOString(),
+        offer: {
+          id: 12345,
+          pickup: 'Downtown',
+          delivery: 'Uptown',
+          amount: 25.00
+        }
+      },
+      {
+        id: 2,
+        type: 'delivery_completed',
+        title: 'Delivery Completed',
+        message: 'Your package has been successfully delivered',
+        read: false,
+        createdAt: yesterday.toISOString(),
+        offer: {
+          id: 12344,
+          pickup: 'Midtown',
+          delivery: 'Suburb',
+          amount: 35.50
+        }
+      },
+      {
+        id: 3,
+        type: 'payment_processed',
+        title: 'Payment Processed',
+        message: 'Your payment of $35.50 has been processed successfully',
+        read: true,
+        createdAt: twoDaysAgo.toISOString(),
+        readAt: yesterday.toISOString()
+      }
+    ];
+  } else if (userRole === 'rider') {
+    // Rider-specific notifications
+    notifications = [
+      {
+        id: 1,
+        type: 'new_offer',
+        title: 'New Delivery Offer',
+        message: 'A new delivery offer is available in your area',
+        read: false,
+        createdAt: now.toISOString(),
+        offer: {
+          id: 12345,
+          pickup: 'Downtown',
+          delivery: 'Uptown',
+          amount: 25.00
+        }
+      },
+      {
+        id: 2,
+        type: 'earnings_update',
+        title: 'Weekly Earnings',
+        message: 'Your earnings this week: $235.50',
+        read: false,
+        createdAt: yesterday.toISOString()
+      },
+      {
+        id: 3,
+        type: 'system_announcement',
+        title: 'App Update Available',
+        message: 'A new version of the rider app is available with improved GPS tracking',
+        read: true,
+        createdAt: twoDaysAgo.toISOString(),
+        readAt: yesterday.toISOString()
+      }
+    ];
+  }
+  
+  // Pagination simulation
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
+  
+  const paginatedNotifications = notifications.slice(startIndex, endIndex);
   
   res.json({
     success: true,
-    notifications
+    notifications: paginatedNotifications,
+    pagination: {
+      currentPage: page,
+      totalPages: Math.ceil(notifications.length / limit),
+      totalNotifications: notifications.length,
+      hasNext: endIndex < notifications.length,
+      hasPrev: page > 1
+    }
+  });
+});
+
+// Mark notification as read
+app.patch('/api/notifications/:notificationId/read', (req, res) => {
+  const { notificationId } = req.params;
+  
+  res.json({
+    success: true,
+    message: 'Notification marked as read',
+    notificationId: parseInt(notificationId)
+  });
+});
+
+// Mark all notifications as read
+app.patch('/api/notifications/mark-all-read', (req, res) => {
+  res.json({
+    success: true,
+    message: 'All notifications marked as read'
   });
 });
 

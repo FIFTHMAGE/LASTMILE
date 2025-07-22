@@ -91,13 +91,28 @@ const NotificationsPage = () => {
 
   const getNotificationIcon = (type) => {
     const icons = {
+      // Business notifications
       offer_accepted: <Package className="h-5 w-5 text-blue-600" />,
       offer_completed: <CheckCheck className="h-5 w-5 text-green-600" />,
       payment_processed: <DollarSign className="h-5 w-5 text-green-600" />,
       pickup_ready: <Bell className="h-5 w-5 text-yellow-600" />,
       in_transit: <Package className="h-5 w-5 text-purple-600" />,
       delivered: <CheckCheck className="h-5 w-5 text-green-600" />,
+      delivery_completed: <CheckCheck className="h-5 w-5 text-green-600" />,
+      
+      // Rider notifications
+      new_offer: <Package className="h-5 w-5 text-blue-600" />,
+      earnings_update: <DollarSign className="h-5 w-5 text-green-600" />,
+      
+      // Admin notifications
       system_announcement: <Info className="h-5 w-5 text-blue-600" />,
+      user_registration: <Users className="h-5 w-5 text-purple-600" />,
+      payment_issue: <AlertCircle className="h-5 w-5 text-red-600" />,
+      platform_metrics: <TrendingUp className="h-5 w-5 text-green-600" />,
+      support_ticket: <AlertCircle className="h-5 w-5 text-yellow-600" />,
+      security_alert: <AlertCircle className="h-5 w-5 text-red-600" />,
+      
+      // Default
       default: <Bell className="h-5 w-5 text-gray-600" />
     };
     return icons[type] || icons.default;
@@ -105,13 +120,28 @@ const NotificationsPage = () => {
 
   const getNotificationColor = (type) => {
     const colors = {
+      // Business notifications
       offer_accepted: 'border-l-blue-500',
       offer_completed: 'border-l-green-500',
       payment_processed: 'border-l-green-500',
       pickup_ready: 'border-l-yellow-500',
       in_transit: 'border-l-purple-500',
       delivered: 'border-l-green-500',
+      delivery_completed: 'border-l-green-500',
+      
+      // Rider notifications
+      new_offer: 'border-l-blue-500',
+      earnings_update: 'border-l-green-500',
+      
+      // Admin notifications
       system_announcement: 'border-l-blue-500',
+      user_registration: 'border-l-purple-500',
+      payment_issue: 'border-l-red-500',
+      platform_metrics: 'border-l-green-500',
+      support_ticket: 'border-l-yellow-500',
+      security_alert: 'border-l-red-500',
+      
+      // Default
       default: 'border-l-gray-500'
     };
     return colors[type] || colors.default;
