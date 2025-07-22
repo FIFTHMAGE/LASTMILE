@@ -4,6 +4,8 @@ import { useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout/Layout';
 import LoginPage from './pages/Auth/LoginPage';
 import RegisterPage from './pages/Auth/RegisterPage';
+import VerifyEmailPage from './pages/Auth/VerifyEmailPage';
+import ResendVerificationPage from './pages/Auth/ResendVerificationPage';
 import BusinessDashboard from './pages/Business/Dashboard';
 import BusinessOffers from './pages/Business/Offers';
 import CreateOffer from './pages/Business/CreateOffer';
@@ -33,6 +35,8 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/resend-verification" element={<ResendVerificationPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );

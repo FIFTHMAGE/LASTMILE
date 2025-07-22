@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const LocationTracking = require('../models/LocationTracking');
+const VerificationToken = require('../models/VerificationToken');
+const emailService = require('../services/EmailService');
 const { 
   auth, 
   requireRole, 
@@ -81,9 +83,16 @@ router.post('/register/business', async (req, res) => {
 
     await user.save();
     
+    // Create verification token
+    const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
+    
+    // Send verification email
+    await emailService.sendVerificationEmail(user, verificationToken);
+    
     res.status(201).json({ 
-      message: 'Business registered successfully',
-      user: user.getProfileData()
+      message: 'Business registered successfully. Please check your email to verify your account.',
+      user: user.getProfileData(),
+      verificationSent: true
     });
   } catch (err) {
     console.error('Business registration error:', err);
@@ -159,9 +168,16 @@ router.post('/register/rider', async (req, res) => {
 
     await user.save();
     
+    // Create verification token
+    const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
+    
+    // Send verification email
+    await emailService.sendVerificationEmail(user, verificationToken);
+    
     res.status(201).json({ 
-      message: 'Rider registered successfully',
-      user: user.getProfileData()
+      message: 'Rider registered successfully. Please check your email to verify your account.',
+      user: user.getProfileData(),
+      verificationSent: true
     });
   } catch (err) {
     console.error('Rider registration error:', err);
@@ -192,9 +208,16 @@ router.post('/register', async (req, res) => {
     const user = new User({ name, email, password: hashed, role });
     await user.save();
     
+    // Create verification token
+    const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
+    
+    // Send verification email
+    await emailService.sendVerificationEmail(user, verificationToken);
+    
     res.status(201).json({ 
-      message: 'Basic user registered. Please complete your profile.',
+      message: 'Basic user registered. Please check your email to verify your account and complete your profile.',
       user: { id: user._id, name: user.name, email: user.email, role: user.role },
+      verificationSent: true,
       nextStep: `Complete your profile at /api/auth/register/${role}`
     });
   } catch (err) {
@@ -312,20 +335,38 @@ router.post('/login', authRateLimit(5, 15 * 60 * 1000), async (req, res) => {
     const welcomeData = {
       business: {
         message: `Welcome back, ${user.name}! Ready to manage your deliveries?`,
-        nextSteps: [
+        nextSteps: user.isVerified ? [
           'Check your active offers',
           'Review recent delivery updates',
           'Post new delivery requests'
+        ] : [
+          'Please verify your email to access all features',
+          'Check your inbox for the verification link',
+          'Or request a new verification email'
         ]
       },
       rider: {
         message: `Welcome back, ${user.name}! Ready to start earning?`,
-        nextSteps: [
+        nextSteps: user.isVerified ? [
           'Update your availability status',
           'Check nearby delivery offers',
           'Review your recent earnings'
+        ] : [
+          'Please verify your email to access all features',
+          'Check your inbox for the verification link',
+          'Or request a new verification email'
         ]
       }
+    };
+    
+    // Add verification warning if user is not verified
+    const verificationStatus = !user.isVerified ? {
+      verified: false,
+      message: 'Your email address is not verified. Please verify your email to access all features.',
+      action: 'Please check your inbox for the verification link or request a new one.',
+      resendLink: '/verify-email/resend'
+    } : {
+      verified: true
     };
     
     res.json({ 
@@ -334,6 +375,7 @@ router.post('/login', authRateLimit(5, 15 * 60 * 1000), async (req, res) => {
       user: profileData,
       dashboard: dashboardInfo[user.role],
       welcome: welcomeData[user.role],
+      verification: verificationStatus,
       loginTime: new Date().toISOString(),
       sessionInfo: {
         expiresIn: '7 days',
@@ -825,6 +867,134 @@ router.post('/logout', auth, (req, res) => {
     message: 'Logged out successfully',
     timestamp: new Date().toISOString()
   });
+});
+
+// Email verification endpoint
+router.get('/verify-email', async (req, res) => {
+  try {
+    const { token } = req.query;
+    
+    if (!token) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Verification token is required',
+        error: 'MISSING_TOKEN'
+      });
+    }
+    
+    // Find the verification token
+    const verificationToken = await VerificationToken.findByToken(token, 'email_verification');
+    
+    if (!verificationToken) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid or expired verification token',
+        error: 'INVALID_TOKEN'
+      });
+    }
+    
+    // Find the user
+    const user = await User.findById(verificationToken.userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found',
+        error: 'USER_NOT_FOUND'
+      });
+    }
+    
+    // Check if user is already verified
+    if (user.isVerified) {
+      return res.json({ 
+        success: true,
+        message: 'Email already verified. You can now log in.',
+        alreadyVerified: true
+      });
+    }
+    
+    // Update user verification status
+    user.isVerified = true;
+    await user.save();
+    
+    // Delete the verification token
+    await VerificationToken.deleteOne({ _id: verificationToken._id });
+    
+    // Send welcome email
+    await emailService.sendWelcomeEmail(user);
+    
+    res.json({ 
+      success: true,
+      message: 'Email verified successfully. You can now log in.',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isVerified: user.isVerified
+      }
+    });
+  } catch (err) {
+    console.error('Email verification error:', err);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error during email verification',
+      error: 'VERIFICATION_SERVER_ERROR'
+    });
+  }
+});
+
+// Resend verification email endpoint
+router.post('/resend-verification', authRateLimit(3, 60 * 60 * 1000), async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Email is required',
+        error: 'MISSING_EMAIL'
+      });
+    }
+    
+    // Find the user
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      // For security reasons, don't reveal that the user doesn't exist
+      return res.json({ 
+        success: true,
+        message: 'If your email exists in our system, a verification link has been sent.',
+      });
+    }
+    
+    // Check if user is already verified
+    if (user.isVerified) {
+      return res.json({ 
+        success: true,
+        message: 'Your email is already verified. You can log in.',
+        alreadyVerified: true
+      });
+    }
+    
+    // Create a new verification token
+    const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
+    
+    // Send verification email
+    await emailService.sendVerificationEmail(user, verificationToken);
+    
+    res.json({ 
+      success: true,
+      message: 'Verification email sent. Please check your inbox.',
+    });
+  } catch (err) {
+    console.error('Resend verification error:', err);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error sending verification email',
+      error: 'VERIFICATION_SERVER_ERROR'
+    });
+  }
 });
 
 module.exports = router; 

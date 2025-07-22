@@ -345,6 +345,48 @@ const refreshToken = async (req, res, next) => {
 };
 
 /**
+ * Middleware to require email verification for specific actions
+ */
+const requireVerification = (options = {}) => {
+  return (req, res, next) => {
+    // Check if user is authenticated
+    if (!req.user) {
+      return res.status(401).json({ 
+        message: 'Authentication required',
+        error: 'NOT_AUTHENTICATED'
+      });
+    }
+
+    // Check if user is verified
+    if (!req.user.isVerified) {
+      // If redirectUrl is provided, include it in the response
+      const response = {
+        message: 'Email verification required for this action.',
+        error: 'VERIFICATION_REQUIRED',
+        verificationNeeded: true
+      };
+
+      if (options.redirectUrl) {
+        response.redirectUrl = options.redirectUrl;
+      }
+
+      if (options.allowUnverified) {
+        // Add verification warning but allow the action
+        req.verificationWarning = {
+          message: 'Your account is not verified. Some features may be limited.',
+          resendLink: '/api/auth/resend-verification'
+        };
+        return next();
+      }
+
+      return res.status(403).json(response);
+    }
+
+    next();
+  };
+};
+
+/**
  * Rate limiting middleware for authentication endpoints
  */
 const authRateLimit = (maxAttempts = 5, windowMs = 15 * 60 * 1000) => {
@@ -391,5 +433,6 @@ module.exports = {
   generateToken,
   refreshToken,
   authRateLimit,
-  getRolePermissions
+  getRolePermissions,
+  requireVerification
 };

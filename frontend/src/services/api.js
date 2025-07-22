@@ -44,6 +44,8 @@ export const authAPI = {
   login: (email, password) => api.post('/auth/login', { email, password }),
   register: (userData) => api.post('/auth/register', userData),
   refreshToken: (token) => api.post('/auth/refresh', { token }),
+  verifyEmail: (token) => api.get(`/auth/verify-email?token=${token}`),
+  resendVerification: (email) => api.post('/auth/resend-verification', { email }),
 };
 
 // Business API

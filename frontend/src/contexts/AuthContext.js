@@ -80,13 +80,22 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const response = await authAPI.login(email, password);
       
-      const { user: userData, token: userToken } = response.data;
+      const { user: userData, token: userToken, verification } = response.data;
       
       setUser(userData);
       setToken(userToken);
       localStorage.setItem('token', userToken);
       
-      toast.success(`Welcome back, ${userData.name}!`);
+      // Show verification warning if needed
+      if (verification && !verification.verified) {
+        toast.warning(verification.message, {
+          duration: 6000,
+          icon: '⚠️',
+        });
+      } else {
+        toast.success(`Welcome back, ${userData.name}!`);
+      }
+      
       return userData;
     } catch (error) {
       const message = error.response?.data?.error?.message || 'Login failed';
@@ -102,13 +111,21 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const response = await authAPI.register(userData);
       
-      const { user: newUser, token: userToken } = response.data;
+      const { user: newUser, token: userToken, verificationSent } = response.data;
       
       setUser(newUser);
       setToken(userToken);
       localStorage.setItem('token', userToken);
       
-      toast.success(`Welcome to LastMile, ${newUser.name}!`);
+      if (verificationSent) {
+        toast.success(
+          `Welcome to LastMile, ${newUser.name}! Please check your email to verify your account.`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.success(`Welcome to LastMile, ${newUser.name}!`);
+      }
+      
       return newUser;
     } catch (error) {
       const message = error.response?.data?.error?.message || 'Registration failed';
@@ -130,6 +147,21 @@ export const AuthProvider = ({ children }) => {
     setUser(prev => ({ ...prev, ...updatedUser }));
   };
 
+  const resendVerification = async (email) => {
+    try {
+      setLoading(true);
+      await authAPI.resendVerification(email);
+      toast.success('Verification email sent. Please check your inbox.');
+      return true;
+    } catch (error) {
+      const message = error.response?.data?.message || 'Failed to send verification email';
+      toast.error(message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   const value = {
     user,
     token,
@@ -137,7 +169,9 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
-    updateUser
+    updateUser,
+    resendVerification,
+    isVerified: user?.isVerified || false
   };
 
   return (

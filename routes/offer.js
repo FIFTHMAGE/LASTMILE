@@ -2,30 +2,23 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Offer = require('../models/Offer');
 const User = require('../models/User');
-const jwt = require('jsonwebtoken');
 const Notification = require('../models/Notification');
 const LocationService = require('../services/LocationService');
 const { cacheStrategies } = require('../services/CacheStrategies');
 const { cacheMiddleware } = require('../middleware/cacheMiddleware');
+const { 
+  auth, 
+  requireRole, 
+  requireVerification 
+} = require('../middleware/auth');
 
 const router = express.Router();
-
-// Auth middleware
-function auth(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token' });
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
     res.status(401).json({ message: 'Invalid token' });
   }
 }
 
 // Business: Post offer (enhanced)
-router.post('/', auth, cacheMiddleware.invalidateOffers, async (req, res) => {
-  if (req.user.role !== 'business') {
-    return res.status(403).json({ message: 'Only businesses can post offers' });
+router.post('/', auth, requireRole('business'), requireVerification(), cacheMiddleware.invalidateOffers, async (req, res) => {
   }
 
   const {
@@ -421,9 +414,7 @@ function getVehicleConstraints(vehicleType) {
 }
 
 // Rider: Accept offer (enhanced with status workflow)
-router.post('/:id/accept', auth, async (req, res) => {
-  if (req.user.role !== 'rider') {
-    return res.status(403).json({ message: 'Only riders can accept offers' });
+router.post('/:id/accept', auth, requireRole('rider'), requireVerification(), async (req, res) => {
   }
 
   try {
