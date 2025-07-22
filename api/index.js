@@ -59,23 +59,101 @@ app.post('/api/auth/register', (req, res) => {
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
   
-  // Simulate login
-  const user = {
-    id: Date.now(),
-    name: 'Demo User',
-    email,
-    role: email.includes('business') ? 'business' : 'rider',
-    profile: email.includes('business') ? 
-      { businessName: 'Demo Business' } : 
-      { phone: '+1234567890', vehicleType: 'bike' }
-  };
-  
-  res.json({
-    success: true,
-    message: 'Login successful',
-    user,
-    token: `demo-token-${user.id}`
-  });
+  // Check if credentials match demo accounts
+  if (email === 'business@demo.com' && password === 'password123') {
+    const user = {
+      id: 1001,
+      name: 'Demo Business',
+      email: 'business@demo.com',
+      role: 'business',
+      profile: { businessName: 'Demo Business Inc.' }
+    };
+    
+    // Create a simple JWT-like token (for demo purposes)
+    const tokenPayload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours expiry
+    };
+    
+    // Base64 encode the token payload to simulate a JWT
+    const tokenString = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+    const token = `demo.${tokenString}.token`;
+    
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      user,
+      token
+    });
+  } 
+  else if (email === 'rider@demo.com' && password === 'password123') {
+    const user = {
+      id: 1002,
+      name: 'Demo Rider',
+      email: 'rider@demo.com',
+      role: 'rider',
+      profile: { phone: '+1234567890', vehicleType: 'bike' }
+    };
+    
+    // Create a simple JWT-like token (for demo purposes)
+    const tokenPayload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours expiry
+    };
+    
+    // Base64 encode the token payload to simulate a JWT
+    const tokenString = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+    const token = `demo.${tokenString}.token`;
+    
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      user,
+      token
+    });
+  }
+  else if (email === 'admin@demo.com' && password === 'password123') {
+    const user = {
+      id: 1003,
+      name: 'Demo Admin',
+      email: 'admin@demo.com',
+      role: 'admin',
+      profile: { adminLevel: 'super' }
+    };
+    
+    // Create a simple JWT-like token (for demo purposes)
+    const tokenPayload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours expiry
+    };
+    
+    // Base64 encode the token payload to simulate a JWT
+    const tokenString = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+    const token = `demo.${tokenString}.token`;
+    
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      user,
+      token
+    });
+  }
+  else {
+    // Invalid credentials
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid email or password'
+    });
+  }
 });
 
 app.get('/api/auth/me', (req, res) => {
@@ -88,19 +166,56 @@ app.get('/api/auth/me', (req, res) => {
     });
   }
   
-  // Simulate user from token
-  const user = {
-    id: 1,
-    name: 'Demo User',
-    email: 'demo@example.com',
-    role: 'business',
-    profile: { businessName: 'Demo Business' }
-  };
-  
-  res.json({
-    success: true,
-    user
-  });
+  try {
+    // For demo tokens, extract the payload
+    if (token.startsWith('demo.')) {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        throw new Error('Invalid token format');
+      }
+      
+      // Decode the payload
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+      
+      // Check if token is expired
+      if (payload.exp * 1000 < Date.now()) {
+        return res.status(401).json({
+          success: false,
+          error: 'Token expired'
+        });
+      }
+      
+      // Return user info from token
+      const user = {
+        id: payload.userId,
+        name: payload.name,
+        email: payload.email,
+        role: payload.role,
+        profile: payload.role === 'business' 
+          ? { businessName: 'Demo Business Inc.' } 
+          : payload.role === 'rider'
+            ? { phone: '+1234567890', vehicleType: 'bike' }
+            : { adminLevel: 'super' }
+      };
+      
+      return res.json({
+        success: true,
+        user
+      });
+    } else {
+      // For non-demo tokens (should not happen in this demo)
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token'
+      });
+    }
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid token'
+    });
+  }
 });
 
 // Offers endpoints

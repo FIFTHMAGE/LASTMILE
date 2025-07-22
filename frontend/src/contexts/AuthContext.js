@@ -28,22 +28,45 @@ export const AuthProvider = ({ children }) => {
 
   const verifyToken = async () => {
     try {
-      // Decode token to get user info (in a real app, you might want to verify with the server)
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      
-      // Check if token is expired
-      if (payload.exp * 1000 < Date.now()) {
-        logout();
-        return;
-      }
+      if (token.startsWith('demo.')) {
+        // For demo tokens, extract the payload
+        const parts = token.split('.');
+        if (parts.length !== 3) {
+          throw new Error('Invalid token format');
+        }
+        
+        // Decode the payload
+        const payload = JSON.parse(atob(parts[1]));
+        
+        // Check if token is expired
+        if (payload.exp * 1000 < Date.now()) {
+          console.log('Token expired');
+          logout();
+          return;
+        }
 
-      // Set user from token payload
-      setUser({
-        id: payload.userId || payload._id,
-        email: payload.email,
-        role: payload.role,
-        name: payload.name
-      });
+        // Set user from token payload
+        setUser({
+          id: payload.userId || payload._id,
+          email: payload.email,
+          role: payload.role,
+          name: payload.name
+        });
+      } else {
+        // For regular tokens, verify with the server
+        try {
+          const response = await authAPI.refreshToken(token);
+          if (response.data?.user) {
+            setUser(response.data.user);
+          } else {
+            throw new Error('Invalid user data');
+          }
+        } catch (error) {
+          console.error('Server token verification failed:', error);
+          logout();
+          return;
+        }
+      }
     } catch (error) {
       console.error('Token verification failed:', error);
       logout();
