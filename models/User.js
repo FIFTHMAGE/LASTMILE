@@ -157,53 +157,88 @@ userSchema.methods.getProfileData = function() {
   return baseProfile;
 };
 
-// Create a hybrid model that uses MongoDB if available, otherwise uses in-memory DB
-const User = {
-  findOne: async function(query) {
+// Create a constructor function that mimics mongoose model behavior
+function User(userData) {
+  // Copy all properties from userData
+  Object.assign(this, userData);
+  
+  // Set default values
+  this.isVerified = this.isVerified || false;
+  this.createdAt = this.createdAt || new Date();
+  this.updatedAt = this.updatedAt || new Date();
+  
+  // Add methods
+  this.validateProfile = userSchema.methods.validateProfile;
+  this.getProfileData = userSchema.methods.getProfileData;
+  
+  // Add save method
+  this.save = async function() {
     if (isMongoAvailable) {
-      return await mongoose.model('User', userSchema).findOne(query);
+      // Use mongoose save
+      const MongoUser = mongoose.model('User', userSchema);
+      const mongoUser = new MongoUser(this);
+      return await mongoUser.save();
     } else {
-      console.log('Using in-memory DB for User.findOne', query);
-      if (query.email) {
-        return await inMemoryDB.findUserByEmail(query.email);
-      } else if (query._id) {
-        return await inMemoryDB.findUserById(query._id);
+      console.log('Using in-memory DB for User.save', this);
+      // Check if user already exists (for updates)
+      if (this._id) {
+        return await inMemoryDB.updateUser(this._id, this);
+      } else {
+        // Create new user
+        const savedUser = await inMemoryDB.createUser(this);
+        // Copy the generated ID back to this object
+        this._id = savedUser._id;
+        return savedUser;
       }
-      return null;
     }
-  },
-  
-  findById: async function(id) {
-    if (isMongoAvailable) {
-      return await mongoose.model('User', userSchema).findById(id);
-    } else {
-      console.log('Using in-memory DB for User.findById', id);
-      return await inMemoryDB.findUserById(id);
+  };
+}
+
+// Add static methods
+User.findOne = async function(query) {
+  if (isMongoAvailable) {
+    return await mongoose.model('User', userSchema).findOne(query);
+  } else {
+    console.log('Using in-memory DB for User.findOne', query);
+    if (query.email) {
+      return await inMemoryDB.findUserByEmail(query.email);
+    } else if (query._id) {
+      return await inMemoryDB.findUserById(query._id);
     }
-  },
-  
-  findByIdAndUpdate: async function(id, updates, options) {
-    if (isMongoAvailable) {
-      return await mongoose.model('User', userSchema).findByIdAndUpdate(id, updates, options);
-    } else {
-      console.log('Using in-memory DB for User.findByIdAndUpdate', id, updates);
-      return await inMemoryDB.updateUser(id, updates);
-    }
-  },
-  
-  create: async function(userData) {
-    if (isMongoAvailable) {
-      return await mongoose.model('User', userSchema).create(userData);
-    } else {
-      console.log('Using in-memory DB for User.create', userData);
-      const user = await inMemoryDB.createUser(userData);
-      
-      // Add methods to the user object
-      user.validateProfile = userSchema.methods.validateProfile;
-      user.getProfileData = userSchema.methods.getProfileData;
-      
-      return user;
-    }
+    return null;
+  }
+};
+
+User.findById = async function(id) {
+  if (isMongoAvailable) {
+    return await mongoose.model('User', userSchema).findById(id);
+  } else {
+    console.log('Using in-memory DB for User.findById', id);
+    return await inMemoryDB.findUserById(id);
+  }
+};
+
+User.findByIdAndUpdate = async function(id, updates, options) {
+  if (isMongoAvailable) {
+    return await mongoose.model('User', userSchema).findByIdAndUpdate(id, updates, options);
+  } else {
+    console.log('Using in-memory DB for User.findByIdAndUpdate', id, updates);
+    return await inMemoryDB.updateUser(id, updates);
+  }
+};
+
+User.create = async function(userData) {
+  if (isMongoAvailable) {
+    return await mongoose.model('User', userSchema).create(userData);
+  } else {
+    console.log('Using in-memory DB for User.create', userData);
+    const user = await inMemoryDB.createUser(userData);
+    
+    // Add methods to the user object
+    user.validateProfile = userSchema.methods.validateProfile;
+    user.getProfileData = userSchema.methods.getProfileData;
+    
+    return user;
   }
 };
 

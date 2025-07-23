@@ -54,7 +54,7 @@ router.post('/register/business', async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
 
     // Create business user
-    const user = new User({ 
+    const userData = { 
       name, 
       email, 
       password: hashed, 
@@ -70,18 +70,10 @@ router.post('/register/business', async (req, res) => {
         },
         businessPhone
       }
-    });
-
-    // Validate profile before saving
-    const validationErrors = user.validateProfile();
-    if (validationErrors.length > 0) {
-      return res.status(400).json({ 
-        message: 'Profile validation failed',
-        errors: validationErrors
-      });
-    }
-
-    await user.save();
+    };
+    
+    // Create the user
+    const user = await User.create(userData);
     
     // Create verification token
     try {
@@ -156,7 +148,7 @@ router.post('/register/rider', async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
 
     // Create rider user
-    const user = new User({ 
+    const userData = { 
       name, 
       email, 
       password: hashed, 
@@ -172,18 +164,10 @@ router.post('/register/rider', async (req, res) => {
         rating: 5.0,
         completedDeliveries: 0
       }
-    });
-
-    // Validate profile before saving
-    const validationErrors = user.validateProfile();
-    if (validationErrors.length > 0) {
-      return res.status(400).json({ 
-        message: 'Profile validation failed',
-        errors: validationErrors
-      });
-    }
-
-    await user.save();
+    };
+    
+    // Create the user
+    const user = await User.create(userData);
     
     // Create verification token
     try {
