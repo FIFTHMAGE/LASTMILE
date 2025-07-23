@@ -23,7 +23,8 @@ const ResendVerificationPage = () => {
       setLoading(true);
       setError('');
       
-      await authAPI.resendVerification(email);
+      const response = await authAPI.resendVerification(email);
+      console.log('Resend verification response:', response);
       
       setSuccess(true);
     } catch (error) {

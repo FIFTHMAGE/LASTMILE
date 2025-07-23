@@ -13,13 +13,9 @@ const {
 } = require('../middleware/auth');
 
 const router = express.Router();
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
 
 // Business: Post offer (enhanced)
 router.post('/', auth, requireRole('business'), requireVerification(), cacheMiddleware.invalidateOffers, async (req, res) => {
-  }
 
   const {
     title,
@@ -415,7 +411,6 @@ function getVehicleConstraints(vehicleType) {
 
 // Rider: Accept offer (enhanced with status workflow)
 router.post('/:id/accept', auth, requireRole('rider'), requireVerification(), async (req, res) => {
-  }
 
   try {
     const { notes, location } = req.body;

@@ -84,16 +84,29 @@ router.post('/register/business', async (req, res) => {
     await user.save();
     
     // Create verification token
-    const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
-    
-    // Send verification email
-    await emailService.sendVerificationEmail(user, verificationToken);
-    
-    res.status(201).json({ 
-      message: 'Business registered successfully. Please check your email to verify your account.',
-      user: user.getProfileData(),
-      verificationSent: true
-    });
+    try {
+      const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
+      
+      // Send verification email
+      await emailService.sendVerificationEmail(user, verificationToken);
+      
+      console.log('Verification email sent to:', user.email);
+      console.log('Verification token:', verificationToken.token);
+      
+      res.status(201).json({ 
+        message: 'Business registered successfully. Please check your email to verify your account.',
+        user: user.getProfileData(),
+        verificationSent: true,
+        // For development purposes only, include the verification link in the response
+        verificationLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken.token}`
+      });
+    } catch (tokenError) {
+      console.error('Token creation error:', tokenError);
+      res.status(201).json({ 
+        message: 'Business registered successfully, but we could not send a verification email. Please contact support.',
+        user: user.getProfileData()
+      });
+    }
   } catch (err) {
     console.error('Business registration error:', err);
     res.status(500).json({ message: 'Server error during registration' });
@@ -169,16 +182,29 @@ router.post('/register/rider', async (req, res) => {
     await user.save();
     
     // Create verification token
-    const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
-    
-    // Send verification email
-    await emailService.sendVerificationEmail(user, verificationToken);
-    
-    res.status(201).json({ 
-      message: 'Rider registered successfully. Please check your email to verify your account.',
-      user: user.getProfileData(),
-      verificationSent: true
-    });
+    try {
+      const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
+      
+      // Send verification email
+      await emailService.sendVerificationEmail(user, verificationToken);
+      
+      console.log('Verification email sent to:', user.email);
+      console.log('Verification token:', verificationToken.token);
+      
+      res.status(201).json({ 
+        message: 'Rider registered successfully. Please check your email to verify your account.',
+        user: user.getProfileData(),
+        verificationSent: true,
+        // For development purposes only, include the verification link in the response
+        verificationLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken.token}`
+      });
+    } catch (tokenError) {
+      console.error('Token creation error:', tokenError);
+      res.status(201).json({ 
+        message: 'Rider registered successfully, but we could not send a verification email. Please contact support.',
+        user: user.getProfileData()
+      });
+    }
   } catch (err) {
     console.error('Rider registration error:', err);
     res.status(500).json({ message: 'Server error during registration' });
@@ -209,17 +235,31 @@ router.post('/register', async (req, res) => {
     await user.save();
     
     // Create verification token
-    const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
-    
-    // Send verification email
-    await emailService.sendVerificationEmail(user, verificationToken);
-    
-    res.status(201).json({ 
-      message: 'Basic user registered. Please check your email to verify your account and complete your profile.',
-      user: { id: user._id, name: user.name, email: user.email, role: user.role },
-      verificationSent: true,
-      nextStep: `Complete your profile at /api/auth/register/${role}`
-    });
+    try {
+      const verificationToken = await VerificationToken.createToken(user._id, 'email_verification');
+      
+      // Send verification email
+      await emailService.sendVerificationEmail(user, verificationToken);
+      
+      console.log('Verification email sent to:', user.email);
+      console.log('Verification token:', verificationToken.token);
+      
+      res.status(201).json({ 
+        message: 'Basic user registered. Please check your email to verify your account and complete your profile.',
+        user: { id: user._id, name: user.name, email: user.email, role: user.role },
+        verificationSent: true,
+        nextStep: `Complete your profile at /api/auth/register/${role}`,
+        // For development purposes only, include the verification link in the response
+        verificationLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken.token}`
+      });
+    } catch (tokenError) {
+      console.error('Token creation error:', tokenError);
+      res.status(201).json({ 
+        message: 'Basic user registered, but we could not send a verification email. Please contact support.',
+        user: { id: user._id, name: user.name, email: user.email, role: user.role },
+        nextStep: `Complete your profile at /api/auth/register/${role}`
+      });
+    }
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -276,6 +316,9 @@ router.post('/login', authRateLimit(5, 15 * 60 * 1000), async (req, res) => {
     
     // Get role-specific profile data
     const profileData = user.getProfileData();
+    
+    // Log verification status
+    console.log('User verification status:', user.isVerified);
     
     // Enhanced role-specific dashboard routing information
     const dashboardInfo = {

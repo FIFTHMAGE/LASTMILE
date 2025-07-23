@@ -25,12 +25,16 @@ const VerifyEmailPage = () => {
     const verifyEmail = async () => {
       try {
         const response = await authAPI.verifyEmail(token);
+        console.log('Verification response:', response);
         
-        if (response.alreadyVerified) {
-          setAlreadyVerified(true);
+        if (response.data && response.data.success) {
+          if (response.data.alreadyVerified) {
+            setAlreadyVerified(true);
+          }
+          setSuccess(true);
+        } else {
+          throw new Error('Verification failed');
         }
-        
-        setSuccess(true);
       } catch (error) {
         console.error('Verification error:', error);
         setError(
