@@ -93,9 +93,13 @@ router.post('/register/business', async (req, res) => {
       console.log('Verification email sent to:', user.email);
       console.log('Verification token:', verificationToken.token);
       
+      // Generate token for the user
+      const token = generateToken(user);
+      
       res.status(201).json({ 
         message: 'Business registered successfully. Please check your email to verify your account.',
         user: user.getProfileData(),
+        token: token, // Include token in response
         verificationSent: true,
         // For development purposes only, include the verification link in the response
         verificationLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken.token}`
@@ -191,9 +195,13 @@ router.post('/register/rider', async (req, res) => {
       console.log('Verification email sent to:', user.email);
       console.log('Verification token:', verificationToken.token);
       
+      // Generate token for the user
+      const token = generateToken(user);
+      
       res.status(201).json({ 
         message: 'Rider registered successfully. Please check your email to verify your account.',
         user: user.getProfileData(),
+        token: token, // Include token in response
         verificationSent: true,
         // For development purposes only, include the verification link in the response
         verificationLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken.token}`
@@ -244,9 +252,13 @@ router.post('/register', async (req, res) => {
       console.log('Verification email sent to:', user.email);
       console.log('Verification token:', verificationToken.token);
       
+      // Generate token for the user
+      const token = generateToken(user);
+      
       res.status(201).json({ 
         message: 'Basic user registered. Please check your email to verify your account and complete your profile.',
         user: { id: user._id, name: user.name, email: user.email, role: user.role },
+        token: token, // Include token in response
         verificationSent: true,
         nextStep: `Complete your profile at /api/auth/register/${role}`,
         // For development purposes only, include the verification link in the response
@@ -278,12 +290,26 @@ router.post('/login', authRateLimit(5, 15 * 60 * 1000), async (req, res) => {
       });
     }
 
+    console.log('Login attempt for email:', email);
+    
     // Try to get user from cache first
     let user = await cacheStrategies.getUserAuth(email);
+    console.log('User from cache:', user ? 'Found' : 'Not found');
+    
     if (!user) {
       // If not in cache, get from database
       user = await User.findOne({ email });
+      console.log('User from database:', user ? 'Found' : 'Not found');
+      
       if (user) {
+        console.log('User details:', {
+          id: user._id,
+          email: user.email,
+          role: user.role,
+          isVerified: user.isVerified,
+          name: user.name
+        });
+        
         // Cache the user auth data for future logins
         await cacheStrategies.setUserAuth(email, {
           _id: user._id,
