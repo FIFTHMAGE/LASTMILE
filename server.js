@@ -17,7 +17,12 @@ if (process.env.NODE_ENV !== 'test') {
   if (mongoUri) {
     mongoose.connect(mongoUri)
       .then(() => console.log('✅ MongoDB connected successfully'))
-      .catch((err) => console.error('❌ MongoDB connection error:', err));
+      .catch((err) => {
+        console.error('❌ MongoDB connection error:', err);
+        console.log('⚠️ Using in-memory database instead');
+      });
+  } else {
+    console.log('⚠️ No MongoDB URI provided, using in-memory database');
   }
 }
 

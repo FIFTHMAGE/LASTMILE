@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
+const inMemoryDB = require('../services/InMemoryDB');
 
+// Check if MongoDB is available
+const isMongoAvailable = process.env.MONGODB_URI || process.env.MONGO_URI;
+
+// Define the schema for MongoDB
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
@@ -152,4 +157,54 @@ userSchema.methods.getProfileData = function() {
   return baseProfile;
 };
 
-module.exports = mongoose.model('User', userSchema); 
+// Create a hybrid model that uses MongoDB if available, otherwise uses in-memory DB
+const User = {
+  findOne: async function(query) {
+    if (isMongoAvailable) {
+      return await mongoose.model('User', userSchema).findOne(query);
+    } else {
+      console.log('Using in-memory DB for User.findOne', query);
+      if (query.email) {
+        return await inMemoryDB.findUserByEmail(query.email);
+      } else if (query._id) {
+        return await inMemoryDB.findUserById(query._id);
+      }
+      return null;
+    }
+  },
+  
+  findById: async function(id) {
+    if (isMongoAvailable) {
+      return await mongoose.model('User', userSchema).findById(id);
+    } else {
+      console.log('Using in-memory DB for User.findById', id);
+      return await inMemoryDB.findUserById(id);
+    }
+  },
+  
+  findByIdAndUpdate: async function(id, updates, options) {
+    if (isMongoAvailable) {
+      return await mongoose.model('User', userSchema).findByIdAndUpdate(id, updates, options);
+    } else {
+      console.log('Using in-memory DB for User.findByIdAndUpdate', id, updates);
+      return await inMemoryDB.updateUser(id, updates);
+    }
+  },
+  
+  create: async function(userData) {
+    if (isMongoAvailable) {
+      return await mongoose.model('User', userSchema).create(userData);
+    } else {
+      console.log('Using in-memory DB for User.create', userData);
+      const user = await inMemoryDB.createUser(userData);
+      
+      // Add methods to the user object
+      user.validateProfile = userSchema.methods.validateProfile;
+      user.getProfileData = userSchema.methods.getProfileData;
+      
+      return user;
+    }
+  }
+};
+
+module.exports = isMongoAvailable ? mongoose.model('User', userSchema) : User;
