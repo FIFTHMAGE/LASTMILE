@@ -1,0 +1,985 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Last Mile Delivery Platform API Schema",
+  "description": "JSON Schema definitions for API request and response validation",
+  "definitions": {
+    "User": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique user identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "User's full name"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User's email address"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["business", "rider", "admin"],
+          "description": "User role"
+        },
+        "profile": {
+          "oneOf": [
+            { "$ref": "#/definitions/BusinessProfile" },
+            { "$ref": "#/definitions/RiderProfile" }
+          ]
+        },
+        "isVerified": {
+          "type": "boolean",
+          "description": "Email verification status"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "email", "role", "isVerified", "createdAt"]
+    },
+    "BusinessProfile": {
+      "type": "object",
+      "properties": {
+        "businessName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Business name"
+        },
+        "businessAddress": {
+          "$ref": "#/definitions/Address"
+        },
+        "businessPhone": {
+          "type": "string",
+          "pattern": "^\\+?[\\d\\s\\-\\(\\)]{10,15}$",
+          "description": "Business phone number"
+        }
+      },
+      "required": ["businessName", "businessAddress", "businessPhone"]
+    },
+    "RiderProfile": {
+      "type": "object",
+      "properties": {
+        "phone": {
+          "type": "string",
+          "pattern": "^\\+?[\\d\\s\\-\\(\\)]{10,15}$",
+          "description": "Rider phone number"
+        },
+        "vehicleType": {
+          "type": "string",
+          "enum": ["bike", "scooter", "car", "van"],
+          "description": "Vehicle type"
+        },
+        "currentLocation": {
+          "$ref": "#/definitions/GeoPoint"
+        },
+        "isAvailable": {
+          "type": "boolean",
+          "description": "Rider availability status"
+        },
+        "rating": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Rider rating"
+        }
+      },
+      "required": ["phone", "vehicleType"]
+    },
+    "Address": {
+      "type": "object",
+      "properties": {
+        "street": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 200,
+          "description": "Street address"
+        },
+        "city": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "City name"
+        },
+        "state": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "State or province"
+        },
+        "zipCode": {
+          "type": "string",
+          "pattern": "^\\d{5}(-\\d{4})?$",
+          "description": "ZIP or postal code"
+        },
+        "coordinates": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[longitude, latitude]"
+        }
+      },
+      "required": ["street", "city", "state", "zipCode", "coordinates"]
+    },
+    "GeoPoint": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["Point"]
+        },
+        "coordinates": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[longitude, latitude]"
+        }
+      },
+      "required": ["type", "coordinates"]
+    },
+    "Offer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique offer identifier"
+        },
+        "business": {
+          "type": "string",
+          "description": "Business user ID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 100,
+          "description": "Offer title"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Offer description"
+        },
+        "packageDetails": {
+          "$ref": "#/definitions/PackageDetails"
+        },
+        "pickup": {
+          "$ref": "#/definitions/LocationDetails"
+        },
+        "delivery": {
+          "$ref": "#/definitions/LocationDetails"
+        },
+        "payment": {
+          "$ref": "#/definitions/PaymentDetails"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "accepted", "picked_up", "in_transit", "delivered", "cancelled"],
+          "description": "Offer status"
+        },
+        "acceptedBy": {
+          "type": "string",
+          "description": "Rider user ID"
+        },
+        "estimatedDistance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Estimated distance in meters"
+        },
+        "estimatedDuration": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Estimated duration in minutes"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "acceptedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pickedUpAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "inTransitAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deliveredAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "business", "title", "pickup", "delivery", "payment", "status", "createdAt"]
+    },
+    "PackageDetails": {
+      "type": "object",
+      "properties": {
+        "weight": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 100,
+          "description": "Package weight in kg"
+        },
+        "dimensions": {
+          "type": "object",
+          "properties": {
+            "length": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Length in cm"
+            },
+            "width": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Width in cm"
+            },
+            "height": {
+              "type": "number",
+              "minimum": 1,
+              "description": "Height in cm"
+            }
+          },
+          "required": ["length", "width", "height"]
+        },
+        "fragile": {
+          "type": "boolean",
+          "description": "Is package fragile"
+        },
+        "specialInstructions": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Special handling instructions"
+        }
+      }
+    },
+    "LocationDetails": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 200,
+          "description": "Full address"
+        },
+        "coordinates": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[longitude, latitude]"
+        },
+        "contactName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "Contact person name"
+        },
+        "contactPhone": {
+          "type": "string",
+          "pattern": "^\\+?[\\d\\s\\-\\(\\)]{10,15}$",
+          "description": "Contact phone number"
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Delivery instructions"
+        }
+      },
+      "required": ["address", "coordinates", "contactName", "contactPhone"]
+    },
+    "PaymentDetails": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Payment amount"
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["USD", "EUR", "GBP", "CAD", "AUD"],
+          "default": "USD",
+          "description": "Currency code"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["cash", "card", "digital"],
+          "description": "Payment method"
+        }
+      },
+      "required": ["amount", "paymentMethod"]
+    },
+    "Payment": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique payment identifier"
+        },
+        "offer": {
+          "type": "string",
+          "description": "Offer ID"
+        },
+        "business": {
+          "type": "string",
+          "description": "Business user ID"
+        },
+        "rider": {
+          "type": "string",
+          "description": "Rider user ID"
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total payment amount"
+        },
+        "platformFee": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Platform fee amount"
+        },
+        "riderEarnings": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Rider earnings amount"
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["USD", "EUR", "GBP", "CAD", "AUD"],
+          "description": "Currency code"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Payment method used"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "completed", "failed", "refunded"],
+          "description": "Payment status"
+        },
+        "transactionId": {
+          "type": "string",
+          "description": "External transaction ID"
+        },
+        "processedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "offer", "business", "rider", "amount", "currency", "status", "createdAt"]
+    },
+    "Notification": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique notification identifier"
+        },
+        "user": {
+          "type": "string",
+          "description": "User ID"
+        },
+        "offer": {
+          "type": "string",
+          "description": "Related offer ID"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "offer_created",
+            "offer_accepted",
+            "offer_picked_up",
+            "offer_in_transit",
+            "offer_delivered",
+            "payment_processed",
+            "system_announcement"
+          ],
+          "description": "Notification type"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Notification title"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Notification message"
+        },
+        "read": {
+          "type": "boolean",
+          "description": "Read status"
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["in_app", "email", "push"]
+          },
+          "description": "Notification channels"
+        },
+        "data": {
+          "type": "object",
+          "description": "Additional notification data"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "readAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "user", "type", "title", "message", "read", "channels", "createdAt"]
+    },
+    "ApiResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "description": "Request success status"
+        },
+        "message": {
+          "type": "string",
+          "description": "Response message"
+        },
+        "data": {
+          "type": "object",
+          "description": "Response data"
+        }
+      },
+      "required": ["success"]
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "enum": [false]
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "Error message"
+            },
+            "code": {
+              "type": "string",
+              "description": "Error code"
+            },
+            "statusCode": {
+              "type": "integer",
+              "description": "HTTP status code"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "details": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "value": {}
+                }
+              },
+              "description": "Validation error details"
+            }
+          },
+          "required": ["message", "code", "statusCode", "timestamp"]
+        }
+      },
+      "required": ["success", "error"]
+    },
+    "PaginationResponse": {
+      "type": "object",
+      "properties": {
+        "currentPage": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Current page number"
+        },
+        "totalPages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of pages"
+        },
+        "totalItems": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of items"
+        },
+        "hasNext": {
+          "type": "boolean",
+          "description": "Has next page"
+        },
+        "hasPrev": {
+          "type": "boolean",
+          "description": "Has previous page"
+        }
+      },
+      "required": ["currentPage", "totalPages", "totalItems", "hasNext", "hasPrev"]
+    }
+  },
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "summary": "Register a new user",
+        "requestBody": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 50
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "password": {
+              "type": "string",
+              "minLength": 8,
+              "pattern": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)"
+            },
+            "role": {
+              "type": "string",
+              "enum": ["business", "rider"]
+            },
+            "profile": {
+              "oneOf": [
+                { "$ref": "#/definitions/BusinessProfile" },
+                { "$ref": "#/definitions/RiderProfile" }
+              ]
+            }
+          },
+          "required": ["name", "email", "password", "role", "profile"]
+        },
+        "responses": {
+          "201": {
+            "allOf": [
+              { "$ref": "#/definitions/ApiResponse" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "user": { "$ref": "#/definitions/User" },
+                      "token": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "400": { "$ref": "#/definitions/ErrorResponse" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate user",
+        "requestBody": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["email", "password"]
+        },
+        "responses": {
+          "200": {
+            "allOf": [
+              { "$ref": "#/definitions/ApiResponse" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "user": { "$ref": "#/definitions/User" },
+                      "token": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "401": { "$ref": "#/definitions/ErrorResponse" }
+        }
+      }
+    },
+    "/business/offers": {
+      "post": {
+        "summary": "Create a new offer",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 100
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "packageDetails": { "$ref": "#/definitions/PackageDetails" },
+            "pickup": { "$ref": "#/definitions/LocationDetails" },
+            "delivery": { "$ref": "#/definitions/LocationDetails" },
+            "payment": { "$ref": "#/definitions/PaymentDetails" },
+            "estimatedDistance": {
+              "type": "number",
+              "minimum": 0
+            },
+            "estimatedDuration": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": ["title", "pickup", "delivery", "payment"]
+        },
+        "responses": {
+          "201": {
+            "allOf": [
+              { "$ref": "#/definitions/ApiResponse" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "offer": { "$ref": "#/definitions/Offer" }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "400": { "$ref": "#/definitions/ErrorResponse" },
+          "401": { "$ref": "#/definitions/ErrorResponse" },
+          "403": { "$ref": "#/definitions/ErrorResponse" }
+        }
+      },
+      "get": {
+        "summary": "Get business offers",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["open", "accepted", "picked_up", "in_transit", "delivered", "cancelled"]
+            }
+          },
+          {
+            "name": "dateFrom",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "dateTo",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "allOf": [
+              { "$ref": "#/definitions/ApiResponse" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "offers": {
+                        "type": "array",
+                        "items": { "$ref": "#/definitions/Offer" }
+                      },
+                      "pagination": { "$ref": "#/definitions/PaginationResponse" }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "401": { "$ref": "#/definitions/ErrorResponse" },
+          "403": { "$ref": "#/definitions/ErrorResponse" }
+        }
+      }
+    },
+    "/rider/nearby-offers": {
+      "get": {
+        "summary": "Get nearby offers for rider",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          },
+          {
+            "name": "maxDistance",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 100000,
+              "default": 10000
+            }
+          },
+          {
+            "name": "minPayment",
+            "in": "query",
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "maxPayment",
+            "in": "query",
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["distance", "payment", "created"],
+              "default": "distance"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["asc", "desc"],
+              "default": "asc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "allOf": [
+              { "$ref": "#/definitions/ApiResponse" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "offers": {
+                        "type": "array",
+                        "items": { "$ref": "#/definitions/Offer" }
+                      },
+                      "pagination": { "$ref": "#/definitions/PaginationResponse" },
+                      "riderLocation": {
+                        "type": "object",
+                        "properties": {
+                          "coordinates": {
+                            "type": "array",
+                            "items": { "type": "number" }
+                          },
+                          "maxDistance": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "400": { "$ref": "#/definitions/ErrorResponse" },
+          "401": { "$ref": "#/definitions/ErrorResponse" },
+          "403": { "$ref": "#/definitions/ErrorResponse" }
+        }
+      }
+    },
+    "/rider/offers/{offerId}/accept": {
+      "post": {
+        "summary": "Accept a delivery offer",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "offerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "allOf": [
+              { "$ref": "#/definitions/ApiResponse" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "offer": { "$ref": "#/definitions/Offer" }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "400": { "$ref": "#/definitions/ErrorResponse" },
+          "401": { "$ref": "#/definitions/ErrorResponse" },
+          "403": { "$ref": "#/definitions/ErrorResponse" },
+          "404": { "$ref": "#/definitions/ErrorResponse" }
+        }
+      }
+    },
+    "/rider/deliveries/{offerId}/status": {
+      "patch": {
+        "summary": "Update delivery status",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "offerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["picked_up", "in_transit", "delivered"]
+            },
+            "location": { "$ref": "#/definitions/GeoPoint" }
+          },
+          "required": ["status"]
+        },
+        "responses": {
+          "200": {
+            "allOf": [
+              { "$ref": "#/definitions/ApiResponse" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "delivery": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "status": { "type": "string" },
+                          "pickedUpAt": { "type": "string", "format": "date-time" },
+                          "inTransitAt": { "type": "string", "format": "date-time" },
+                          "deliveredAt": { "type": "string", "format": "date-time" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "400": { "$ref": "#/definitions/ErrorResponse" },
+          "401": { "$ref": "#/definitions/ErrorResponse" },
+          "403": { "$ref": "#/definitions/ErrorResponse" },
+          "404": { "$ref": "#/definitions/ErrorResponse" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

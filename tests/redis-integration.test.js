@@ -60,17 +60,17 @@ describe('Redis Caching Integration Tests', () => {
   describe('Cache Middleware Integration', () => {
     beforeEach(() => {
       // Setup test routes with caching middleware
-      app.get('/test/cached-route', 
+      app.get('/test/cached-route',
         (req, res, next) => {
           req.user = { id: businessUser._id.toString(), role: 'business' };
           next();
         },
         cacheMiddleware.userOffers,
         (req, res) => {
-          res.json({ 
-            data: 'test response', 
+          res.json({
+            data: 'test response',
             timestamp: Date.now(),
-            userId: req.user.id 
+            userId: req.user.id
           });
         }
       );
@@ -331,8 +331,8 @@ describe('Redis Caching Integration Tests', () => {
       for (let i = 0; i < numOperations; i++) {
         const operation = async () => {
           const key = `perf:test:${i}`;
-          const value = { 
-            id: i, 
+          const value = {
+            id: i,
             data: `test data ${i}`,
             timestamp: Date.now(),
             businessId: businessUser._id.toString()
@@ -418,14 +418,14 @@ describe('Redis Caching Integration Tests', () => {
       };
 
       const startTime = Date.now();
-      
+
       // Cache large data
       const setResult = await cacheService.set('test:large:data', largeData, 300);
       expect(setResult).toBe(true);
 
       // Retrieve large data
       const retrievedData = await cacheService.get('test:large:data');
-      
+
       const endTime = Date.now();
       const operationTime = endTime - startTime;
 

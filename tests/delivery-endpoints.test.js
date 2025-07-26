@@ -1,441 +1,236 @@
 const request = require('supertest');
-const express = require('express');
 const mongoose = require('mongoose');
-const deliveryRoutes = require('../routes/delivery');
+const app = require('../server');
 const DeliveryTracking = require('../models/DeliveryTracking');
 const Offer = require('../models/Offer');
-const NotificationService = require('../services/NotificationService');
-const auth = require('../middleware/auth');
+const User = require('../models/User');
+const LocationTracking = require('../models/LocationTracking');
 
-// Mock dependencies
-jest.mock('../models/DeliveryTracking');
-jest.mock('../models/Offer');
-jest.mock('../services/NotificationService');
-jest.mock('../middleware/auth');
-
-// Create test app
-const app = express();
-app.use(express.json());
-app.use('/api/delivery', deliveryRoutes);
+// Mock authentication middleware
+jest.mock('../middleware/auth', () => {
+  return {
+    auth: (req, res, next) => {
+      req.user = {
+        id: req.headers['x-auth-user-id'] || '5f8d0f55d7a243001c9a4d52',
+        role: req.headers['x-auth-user-role'] || 'rider'
+      };
+      next();
+    },
+    requireRole: (role) => (req, res, next) => {
+      if (req.user.role !== role) {
+        return res.status(403).json({ message: `Access denied. ${role} role required.` });
+      }
+      next();
+    }
+  };
+});
 
 describe('Delivery Tracking Endpoints', () => {
-  let mockUser, mockOffer, mockTracking;
+  let riderId, businessId, offerId, offer, rider, business;
 
-  beforeEach(() => {
-    // Reset mocks
-    jest.clearAllMocks();
-
-    // Mock user data
-    mockUser = {
-      id: new mongoose.Types.ObjectId().toString(),
-      role: 'rider',
-      email: 'rider@test.com'
-    };
-
-    // Mock offer data
-    mockOffer = {
-      _id: new mongoose.Types.ObjectId(),
-      business: new mongoose.Types.ObjectId(),
-      acceptedBy: new mongoose.Types.ObjectId(mockUser.id),
-      status: 'accepted',
-      title: 'Test Delivery',
-      save: jest.fn().mockResolvedValue(true)
-    };
-
-    // Mock tracking data
-    mockTracking = {
-      _id: new mongoose.Types.ObjectId(),
-      offer: mockOffer._id,
-      rider: new mongoose.Types.ObjectId(mockUser.id),
-      business: mockOffer.business,
-      currentStatus: 'accepted',
-      save: jest.fn().mockResolvedValue(true),
-      getSummary: jest.fn().mockReturnValue({
-        id: 'tracking_id',
-        currentStatus: 'accepted',
-        progressPercentage: 0
-      }),
-      getDetailedTracking: jest.fn().mockReturnValue({
-        id: 'tracking_id',
-        currentStatus: 'accepted',
-        events: [],
-        locationHistory: []
-      }),
-      updateStatus: jest.fn().mockResolvedValue(true),
-      updateLocation: jest.fn().mockResolvedValue(true),
-      reportIssue: jest.fn().mockResolvedValue(true),
-      confirmDelivery: jest.fn().mockResolvedValue(true),
-      updateEstimatedDelivery: jest.fn().mockResolvedValue(true),
-      currentLocation: {
-        coordinates: [-74.006, 40.7128],
-        lastUpdated: new Date()
-      },
-      estimatedDelivery: {
-        estimatedTime: new Date(Date.now() + 30 * 60 * 1000),
-        estimatedDuration: 30
-      },
-      estimatedTimeRemaining: 30,
-      deliveryConfirmation: {
-        confirmationType: 'photo',
-        confirmedAt: new Date()
-      },
-      issues: []
-    };
-
-    // Mock auth middleware
-    auth.mockImplementation((req, res, next) => {
-      req.user = mockUser;
-      next();
-    });
-
-    // Mock NotificationService
-    NotificationService.mockImplementation(() => ({
-      send: jest.fn().mockResolvedValue(true),
-      sendOfferNotification: jest.fn().mockResolvedValue(true)
-    }));
+  beforeAll(async () => {
+    // Connect to test database
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lastmile_test', {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      });
+    }
   });
 
-  describe('POST /api/delivery/tracking', () => {
-    test('should create delivery tracking successfully', async () => {
-      Offer.findById = jest.fn().mockResolvedValue(mockOffer);
-      DeliveryTracking.findOne = jest.fn().mockResolvedValue(null);
-      DeliveryTracking.createForOffer = jest.fn().mockResolvedValue(mockTracking);
+  afterAll(async () => {
+    // Clean up and disconnect
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.dropDatabase();
+      await mongoose.connection.close();
+    }
+  });
 
+  beforeEach(async () => {
+    // Clear collections
+    await DeliveryTracking.deleteMany({});
+    await Offer.deleteMany({});
+    await User.deleteMany({});
+    await LocationTracking.deleteMany({});
+
+    // Create test data
+    riderId = new mongoose.Types.ObjectId();
+    businessId = new mongoose.Types.ObjectId();
+    offerId = new mongoose.Types.ObjectId();
+
+    rider = await User.create({
+      _id: riderId,
+      name: 'Test Rider',
+      email: 'rider@test.com',
+      password: 'password',
+      role: 'rider',
+      profile: {
+        phone: '1234567890',
+        vehicleType: 'bike'
+      }
+    });
+
+    business = await User.create({
+      _id: businessId,
+      name: 'Test Business',
+      email: 'business@test.com',
+      password: 'password',
+      role: 'business',
+      profile: {
+        businessName: 'Test Business Inc',
+        businessAddress: {
+          street: '123 Business St',
+          city: 'Business City',
+          state: 'BC',
+          zipCode: '12345'
+        },
+        businessPhone: '0987654321'
+      }
+    });
+
+    offer = await Offer.create({
+      _id: offerId,
+      business: businessId,
+      title: 'Test Delivery',
+      pickup: {
+        address: '123 Pickup St',
+        coordinates: [-74.006, 40.7128],
+        contactName: 'Pickup Contact',
+        contactPhone: '1111111111'
+      },
+      delivery: {
+        address: '456 Delivery Ave',
+        coordinates: [-74.0059, 40.7127],
+        contactName: 'Delivery Contact',
+        contactPhone: '2222222222'
+      },
+      payment: {
+        amount: 25.50,
+        currency: 'USD',
+        paymentMethod: 'card'
+      },
+      status: 'accepted',
+      acceptedBy: riderId,
+      acceptedAt: new Date(),
+      estimatedDistance: 5000,
+      estimatedDuration: 30
+    });
+  });
+
+  describe('POST /api/delivery/start/:offerId', () => {
+    test('should start delivery tracking for accepted offer', async () => {
       const response = await request(app)
-        .post('/api/delivery/tracking')
-        .send({
-          offerId: mockOffer._id,
-          initialLocation: {
-            coordinates: [-74.006, 40.7128],
-            address: '123 Main St'
-          }
-        });
+        .post(`/api/delivery/start/${offerId}`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
 
-      expect(response.status).toBe(201);
+      expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      expect(response.body.data.tracking).toBeDefined();
-      expect(DeliveryTracking.createForOffer).toHaveBeenCalledWith(
-        mockOffer._id,
-        mockUser.id,
-        mockOffer.business,
-        expect.any(Object)
-      );
+      expect(response.body.message).toBe('Delivery tracking started');
+      expect(response.body.tracking).toBeDefined();
+      expect(response.body.tracking.currentStatus).toBe('accepted');
+      expect(response.body.tracking.isActive).toBe(true);
     });
 
-    test('should reject non-rider users', async () => {
-      mockUser.role = 'business';
-
+    test('should return 404 for non-existent offer', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId();
+      
       const response = await request(app)
-        .post('/api/delivery/tracking')
-        .send({ offerId: mockOffer._id });
-
-      expect(response.status).toBe(403);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Only riders can create delivery tracking');
-    });
-
-    test('should require offer ID', async () => {
-      const response = await request(app)
-        .post('/api/delivery/tracking')
-        .send({});
-
-      expect(response.status).toBe(400);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Offer ID is required');
-    });
-
-    test('should reject if offer not found', async () => {
-      Offer.findById = jest.fn().mockResolvedValue(null);
-
-      const response = await request(app)
-        .post('/api/delivery/tracking')
-        .send({ offerId: mockOffer._id });
+        .post(`/api/delivery/start/${nonExistentId}`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
 
       expect(response.status).toBe(404);
       expect(response.body.success).toBe(false);
       expect(response.body.message).toBe('Offer not found');
     });
 
-    test('should reject if tracking already exists', async () => {
-      Offer.findById = jest.fn().mockResolvedValue(mockOffer);
-      DeliveryTracking.findOne = jest.fn().mockResolvedValue(mockTracking);
-
-      const response = await request(app)
-        .post('/api/delivery/tracking')
-        .send({ offerId: mockOffer._id });
-
-      expect(response.status).toBe(409);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Delivery tracking already exists for this offer');
-    });
-  });
-
-  describe('PUT /api/delivery/:trackingId/status', () => {
-    test('should update delivery status successfully', async () => {
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(mockTracking);
-      Offer.findById = jest.fn().mockResolvedValue(mockOffer);
-
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/status`)
-        .send({
-          status: 'picked_up',
-          description: 'Package picked up from sender',
-          location: {
-            coordinates: [-74.006, 40.7128],
-            address: '123 Main St'
-          }
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(mockTracking.updateStatus).toHaveBeenCalledWith('picked_up', {
-        location: expect.any(Object),
-        description: 'Package picked up from sender',
-        reportedBy: mockUser.id,
-        metadata: {}
-      });
-    });
-
-    test('should reject non-rider users', async () => {
-      mockUser.role = 'business';
-
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/status`)
-        .send({ status: 'picked_up' });
-
-      expect(response.status).toBe(403);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Only riders can update delivery status');
-    });
-
-    test('should require status field', async () => {
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/status`)
-        .send({});
-
-      expect(response.status).toBe(400);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Status is required');
-    });
-
-    test('should handle invalid status transitions', async () => {
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(mockTracking);
-      mockTracking.updateStatus.mockRejectedValue(new Error('Invalid status transition from accepted to completed'));
-
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/status`)
-        .send({ status: 'completed' });
-
-      expect(response.status).toBe(400);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Invalid status transition from accepted to completed');
-    });
-  });
-
-  describe('PUT /api/delivery/:trackingId/location', () => {
-    test('should update location successfully', async () => {
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(mockTracking);
-
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/location`)
-        .send({
-          coordinates: [-74.007, 40.7129],
-          address: '124 Main St',
-          accuracy: 5,
-          speed: 25,
-          heading: 90
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(mockTracking.updateLocation).toHaveBeenCalledWith(
-        [-74.007, 40.7129],
-        {
-          address: '124 Main St',
-          accuracy: 5,
-          speed: 25,
-          heading: 90
-        }
-      );
-    });
-
-    test('should require valid coordinates', async () => {
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/location`)
-        .send({ coordinates: 'invalid' });
-
-      expect(response.status).toBe(400);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Valid coordinates [longitude, latitude] are required');
-    });
-
-    test('should reject access for non-owner', async () => {
-      mockTracking.rider = new mongoose.Types.ObjectId(); // Different rider
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(mockTracking);
-
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/location`)
-        .send({ coordinates: [-74.007, 40.7129] });
-
-      expect(response.status).toBe(403);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('You can only update location for your own deliveries');
-    });
-  });
-
-  describe('POST /api/delivery/:trackingId/issues', () => {
-    test('should report issue successfully', async () => {
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(mockTracking);
-      mockTracking.issues = [{ type: 'package_damaged', description: 'Box is wet' }];
-
-      const response = await request(app)
-        .post(`/api/delivery/${mockTracking._id}/issues`)
-        .send({
-          type: 'package_damaged',
-          description: 'Package appears to be damaged',
-          severity: 'high',
-          location: {
-            coordinates: [-74.006, 40.7128],
-            address: '123 Main St'
-          },
-          photos: ['photo1.jpg']
-        });
-
-      expect(response.status).toBe(201);
-      expect(response.body.success).toBe(true);
-      expect(mockTracking.reportIssue).toHaveBeenCalledWith({
-        type: 'package_damaged',
-        description: 'Package appears to be damaged',
-        reportedBy: mockUser.id,
-        location: expect.any(Object),
-        severity: 'high',
-        photos: ['photo1.jpg']
-      });
-    });
-
-    test('should require type and description', async () => {
-      const response = await request(app)
-        .post(`/api/delivery/${mockTracking._id}/issues`)
-        .send({ type: 'package_damaged' });
-
-      expect(response.status).toBe(400);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Issue type and description are required');
-    });
-  });
-
-  describe('POST /api/delivery/:trackingId/confirm', () => {
-    test('should confirm delivery successfully', async () => {
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(mockTracking);
-
-      const response = await request(app)
-        .post(`/api/delivery/${mockTracking._id}/confirm`)
-        .send({
-          confirmationType: 'photo',
-          confirmationData: {
-            photoUrl: 'delivery-photo.jpg',
-            recipientName: 'John Doe'
-          },
-          deliveryLocation: {
-            coordinates: [-74.006, 40.7128],
-            address: '123 Main St'
-          },
-          notes: 'Left at front door'
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(mockTracking.confirmDelivery).toHaveBeenCalledWith({
-        confirmationType: 'photo',
-        confirmationData: expect.any(Object),
-        deliveryLocation: expect.any(Object),
-        notes: 'Left at front door'
-      });
-    });
-
-    test('should require confirmation type', async () => {
-      const response = await request(app)
-        .post(`/api/delivery/${mockTracking._id}/confirm`)
-        .send({});
-
-      expect(response.status).toBe(400);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Confirmation type is required');
-    });
-  });
-
-  describe('GET /api/delivery/:trackingId', () => {
-    test('should get delivery tracking details', async () => {
-      const populatedTracking = {
-        ...mockTracking,
-        offer: { title: 'Test Delivery' },
-        rider: { name: 'John Rider' },
-        business: { businessName: 'Test Business' }
-      };
-
-      DeliveryTracking.findById = jest.fn().mockReturnValue({
-        populate: jest.fn().mockReturnValue({
-          populate: jest.fn().mockReturnValue({
-            populate: jest.fn().mockResolvedValue(populatedTracking)
-          })
-        })
-      });
-
-      const response = await request(app)
-        .get(`/api/delivery/${mockTracking._id}`);
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(response.body.data.tracking).toBeDefined();
-      expect(response.body.data.offer).toBeDefined();
-      expect(response.body.data.rider).toBeDefined();
-      expect(response.body.data.business).toBeDefined();
-    });
-
-    test('should get detailed tracking when requested', async () => {
-      const populatedTracking = {
-        ...mockTracking,
-        offer: { title: 'Test Delivery' },
-        rider: { name: 'John Rider' },
-        business: { businessName: 'Test Business' }
-      };
-
-      DeliveryTracking.findById = jest.fn().mockReturnValue({
-        populate: jest.fn().mockReturnValue({
-          populate: jest.fn().mockReturnValue({
-            populate: jest.fn().mockResolvedValue(populatedTracking)
-          })
-        })
-      });
-
-      const response = await request(app)
-        .get(`/api/delivery/${mockTracking._id}?detailed=true`);
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(mockTracking.getDetailedTracking).toHaveBeenCalled();
-    });
-
-    test('should reject access for unauthorized users', async () => {
-      mockTracking.rider = new mongoose.Types.ObjectId();
-      mockTracking.business = new mongoose.Types.ObjectId();
+    test('should return 403 for non-assigned rider', async () => {
+      const otherRiderId = new mongoose.Types.ObjectId();
       
-      const populatedTracking = {
-        ...mockTracking,
-        rider: { _id: mockTracking.rider },
-        business: { _id: mockTracking.business }
-      };
+      const response = await request(app)
+        .post(`/api/delivery/start/${offerId}`)
+        .set('x-auth-user-id', otherRiderId.toString())
+        .set('x-auth-user-role', 'rider');
 
-      DeliveryTracking.findById = jest.fn().mockReturnValue({
-        populate: jest.fn().mockReturnValue({
-          populate: jest.fn().mockReturnValue({
-            populate: jest.fn().mockResolvedValue(populatedTracking)
-          })
-        })
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toBe('You are not assigned to this offer');
+    });
+
+    test('should return 400 for non-accepted offer', async () => {
+      offer.status = 'open';
+      await offer.save();
+
+      const response = await request(app)
+        .post(`/api/delivery/start/${offerId}`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toBe('Offer must be in accepted status to start tracking');
+    });
+  });
+
+  describe('GET /api/delivery/track/:offerId', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should get delivery tracking for business owner', async () => {
+      const response = await request(app)
+        .get(`/api/delivery/track/${offerId}`)
+        .set('x-auth-user-id', businessId.toString())
+        .set('x-auth-user-role', 'business');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.tracking).toBeDefined();
+      expect(response.body.tracking.currentStatus).toBe('accepted');
+    });
+
+    test('should get delivery tracking for assigned rider', async () => {
+      const response = await request(app)
+        .get(`/api/delivery/track/${offerId}`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.tracking).toBeDefined();
+    });
+
+    test('should include location data when available', async () => {
+      // Add location data
+      await LocationTracking.updateRiderLocation(riderId, {
+        coordinates: [-74.005, 40.712],
+        accuracy: 10,
+        heading: 90,
+        speed: 5,
+        offerId: offerId,
+        trackingType: 'heading_to_pickup'
       });
 
       const response = await request(app)
-        .get(`/api/delivery/${mockTracking._id}`);
+        .get(`/api/delivery/track/${offerId}`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(200);
+      expect(response.body.tracking.currentLocation).toBeDefined();
+      expect(response.body.tracking.currentLocation.coordinates).toEqual([-74.005, 40.712]);
+    });
+
+    test('should return 403 for unauthorized user', async () => {
+      const unauthorizedId = new mongoose.Types.ObjectId();
+      
+      const response = await request(app)
+        .get(`/api/delivery/track/${offerId}`)
+        .set('x-auth-user-id', unauthorizedId.toString())
+        .set('x-auth-user-role', 'rider');
 
       expect(response.status).toBe(403);
       expect(response.body.success).toBe(false);
@@ -443,214 +238,644 @@ describe('Delivery Tracking Endpoints', () => {
     });
   });
 
-  describe('GET /api/delivery/offer/:offerId', () => {
-    test('should get tracking by offer ID', async () => {
-      const populatedTracking = {
-        ...mockTracking,
-        offer: { title: 'Test Delivery' },
-        rider: { _id: new mongoose.Types.ObjectId(mockUser.id), name: 'John Rider' },
-        business: { _id: mockOffer.business, businessName: 'Test Business' }
+  describe('POST /api/delivery/:offerId/event', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should add delivery event successfully', async () => {
+      const eventData = {
+        eventType: 'heading_to_pickup',
+        notes: 'Started heading to pickup location',
+        location: {
+          coordinates: [-74.005, 40.712]
+        }
       };
 
-      DeliveryTracking.getByOfferId = jest.fn().mockResolvedValue(populatedTracking);
-
       const response = await request(app)
-        .get(`/api/delivery/offer/${mockOffer._id}`);
+        .post(`/api/delivery/${offerId}/event`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(eventData);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      expect(response.body.data.tracking).toBeDefined();
-      expect(DeliveryTracking.getByOfferId).toHaveBeenCalledWith(mockOffer._id);
+      expect(response.body.message).toBe('Event added successfully');
+      expect(response.body.tracking.currentStatus).toBe('heading_to_pickup');
     });
 
-    test('should return 404 if tracking not found', async () => {
-      DeliveryTracking.getByOfferId = jest.fn().mockResolvedValue(null);
+    test('should update offer status for delivery events', async () => {
+      const eventData = {
+        eventType: 'package_delivered',
+        notes: 'Package delivered successfully'
+      };
 
       const response = await request(app)
-        .get(`/api/delivery/offer/${mockOffer._id}`);
+        .post(`/api/delivery/${offerId}/event`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(eventData);
 
-      expect(response.status).toBe(404);
+      expect(response.status).toBe(200);
+      
+      // Check that offer status was updated
+      const updatedOffer = await Offer.findById(offerId);
+      expect(updatedOffer.status).toBe('delivered');
+      expect(updatedOffer.deliveredAt).toBeDefined();
+    });
+
+    test('should validate event type', async () => {
+      const eventData = {
+        eventType: 'invalid_event',
+        notes: 'Test notes'
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/event`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(eventData);
+
+      expect(response.status).toBe(400);
       expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Delivery tracking not found for this offer');
+      expect(response.body.errors).toBeDefined();
+    });
+
+    test('should return 403 for non-assigned rider', async () => {
+      const otherRiderId = new mongoose.Types.ObjectId();
+      const eventData = {
+        eventType: 'heading_to_pickup',
+        notes: 'Test notes'
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/event`)
+        .set('x-auth-user-id', otherRiderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(eventData);
+
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toBe('You are not assigned to this delivery');
+    });
+  });
+
+  describe('POST /api/delivery/:offerId/pickup-attempt', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should record successful pickup attempt', async () => {
+      const attemptData = {
+        successful: true,
+        notes: 'Package picked up successfully',
+        contactAttempts: [{
+          method: 'phone',
+          successful: true,
+          response: 'Customer answered'
+        }]
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/pickup-attempt`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(attemptData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('Pickup attempt recorded');
+      expect(response.body.tracking.currentStatus).toBe('picked_up');
+    });
+
+    test('should record failed pickup attempt', async () => {
+      const attemptData = {
+        successful: false,
+        notes: 'Customer not available'
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/pickup-attempt`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(attemptData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.tracking.currentStatus).toBe('accepted'); // Status shouldn't change for failed attempt
+    });
+
+    test('should validate required fields', async () => {
+      const attemptData = {
+        successful: true
+        // Missing notes
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/pickup-attempt`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(attemptData);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.errors).toBeDefined();
+    });
+  });
+
+  describe('POST /api/delivery/:offerId/delivery-attempt', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+      // Set up tracking to delivery stage
+      await tracking.addEvent('package_picked_up');
+      await tracking.addEvent('in_transit');
+      await tracking.addEvent('arrived_at_delivery');
+    });
+
+    test('should record successful delivery attempt', async () => {
+      const attemptData = {
+        successful: true,
+        notes: 'Package delivered successfully',
+        deliveryMethod: 'hand_to_customer',
+        signatureRequired: true,
+        signatureObtained: true,
+        photoTaken: true
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/delivery-attempt`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(attemptData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('Delivery attempt recorded');
+      expect(response.body.tracking.currentStatus).toBe('delivered');
+    });
+
+    test('should record failed delivery attempt', async () => {
+      const attemptData = {
+        successful: false,
+        notes: 'Customer not home',
+        contactAttempts: [{
+          method: 'phone',
+          successful: false,
+          response: 'No answer'
+        }]
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/delivery-attempt`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(attemptData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.tracking.currentStatus).toBe('arrived_at_delivery'); // Status shouldn't change
+    });
+  });
+
+  describe('POST /api/delivery/:offerId/issue', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should report issue successfully', async () => {
+      const issueData = {
+        type: 'traffic_delay',
+        description: 'Heavy traffic causing delay',
+        impactOnDelivery: 'minor_delay'
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/issue`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(issueData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('Issue reported successfully');
+    });
+
+    test('should validate issue type', async () => {
+      const issueData = {
+        type: 'invalid_issue',
+        description: 'Test description'
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/issue`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(issueData);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.errors).toBeDefined();
+    });
+  });
+
+  describe('PUT /api/delivery/:offerId/eta', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should update ETA successfully', async () => {
+      const futureTime = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+      const etaData = {
+        estimatedArrivalTime: futureTime.toISOString()
+      };
+
+      const response = await request(app)
+        .put(`/api/delivery/${offerId}/eta`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(etaData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('ETA updated successfully');
+      expect(response.body.estimatedArrivalTime).toBeDefined();
+      expect(response.body.estimatedTimeRemaining).toBeGreaterThan(0);
+    });
+
+    test('should validate ISO8601 date format', async () => {
+      const etaData = {
+        estimatedArrivalTime: 'invalid-date'
+      };
+
+      const response = await request(app)
+        .put(`/api/delivery/${offerId}/eta`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(etaData);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.errors).toBeDefined();
     });
   });
 
   describe('GET /api/delivery/rider/active', () => {
     test('should get active deliveries for rider', async () => {
-      const activeDeliveries = [
-        {
-          ...mockTracking,
-          offer: { title: 'Delivery 1' },
-          business: { businessName: 'Business 1' }
+      // Create multiple deliveries
+      const offer2 = await Offer.create({
+        business: businessId,
+        title: 'Second Delivery',
+        pickup: {
+          address: '789 Second St',
+          coordinates: [-74.007, 40.713],
+          contactName: 'Second Contact',
+          contactPhone: '3333333333'
         },
-        {
-          ...mockTracking,
-          offer: { title: 'Delivery 2' },
-          business: { businessName: 'Business 2' }
-        }
-      ];
+        delivery: {
+          address: '101 Second Ave',
+          coordinates: [-74.008, 40.714],
+          contactName: 'Second Delivery',
+          contactPhone: '4444444444'
+        },
+        payment: { amount: 30.00, currency: 'USD', paymentMethod: 'cash' },
+        status: 'accepted',
+        acceptedBy: riderId,
+        acceptedAt: new Date()
+      });
 
-      DeliveryTracking.getActiveDeliveries = jest.fn().mockResolvedValue(activeDeliveries);
+      await DeliveryTracking.createForOffer(offer);
+      await DeliveryTracking.createForOffer(offer2);
 
       const response = await request(app)
-        .get('/api/delivery/rider/active');
+        .get('/api/delivery/rider/active')
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      expect(response.body.data.activeDeliveries).toHaveLength(2);
-      expect(response.body.data.count).toBe(2);
-      expect(DeliveryTracking.getActiveDeliveries).toHaveBeenCalledWith(mockUser.id);
+      expect(response.body.activeDeliveries).toHaveLength(2);
+      expect(response.body.count).toBe(2);
     });
 
-    test('should reject non-rider users', async () => {
-      mockUser.role = 'business';
+    test('should return empty array when no active deliveries', async () => {
+      const response = await request(app)
+        .get('/api/delivery/rider/active')
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.activeDeliveries).toHaveLength(0);
+      expect(response.body.count).toBe(0);
+    });
+  });
+
+  describe('GET /api/delivery/business/active', () => {
+    test('should get active deliveries for business', async () => {
+      await DeliveryTracking.createForOffer(offer);
 
       const response = await request(app)
-        .get('/api/delivery/rider/active');
+        .get('/api/delivery/business/active')
+        .set('x-auth-user-id', businessId.toString())
+        .set('x-auth-user-role', 'business');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.activeDeliveries).toHaveLength(1);
+      expect(response.body.count).toBe(1);
+    });
+  });
+
+  describe('POST /api/delivery/:offerId/calculate-eta', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should calculate ETA successfully', async () => {
+      const etaData = {
+        currentLocation: {
+          coordinates: [-74.005, 40.712]
+        },
+        vehicleType: 'bike',
+        trafficFactor: 1.2
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/calculate-eta`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(etaData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.eta).toBeDefined();
+      expect(response.body.eta.estimatedArrivalTime).toBeDefined();
+      expect(response.body.eta.estimatedMinutes).toBeGreaterThan(0);
+      expect(response.body.eta.distance).toBeGreaterThan(0);
+    });
+
+    test('should validate coordinates format', async () => {
+      const etaData = {
+        currentLocation: {
+          coordinates: [-74.005] // Missing latitude
+        }
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/calculate-eta`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(etaData);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.errors).toBeDefined();
+    });
+
+    test('should handle different delivery statuses', async () => {
+      // Test for pickup phase
+      const etaData = {
+        currentLocation: {
+          coordinates: [-74.005, 40.712]
+        }
+      };
+
+      let response = await request(app)
+        .post(`/api/delivery/${offerId}/calculate-eta`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(etaData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.eta.destination).toEqual(offer.pickup.coordinates);
+
+      // Update to delivery phase
+      await tracking.addEvent('package_picked_up');
+
+      response = await request(app)
+        .post(`/api/delivery/${offerId}/calculate-eta`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(etaData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.eta.destination).toEqual(offer.delivery.coordinates);
+    });
+  });
+
+  describe('GET /api/delivery/:offerId/route-optimization', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should get route optimization suggestions', async () => {
+      const response = await request(app)
+        .get(`/api/delivery/${offerId}/route-optimization`)
+        .query({ currentLocation: '-74.005,40.712' })
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.routeOptimization).toBeDefined();
+      expect(response.body.routeOptimization.suggestion).toBeDefined();
+      expect(response.body.routeOptimization.alternativeRoutes).toHaveLength(2);
+    });
+
+    test('should validate location format', async () => {
+      const response = await request(app)
+        .get(`/api/delivery/${offerId}/route-optimization`)
+        .query({ currentLocation: 'invalid-format' })
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toBe('Invalid location format. Use: lng,lat');
+    });
+
+    test('should require current location', async () => {
+      const response = await request(app)
+        .get(`/api/delivery/${offerId}/route-optimization`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toBe('Current location is required');
+    });
+  });
+
+  describe('POST /api/delivery/:offerId/location-update', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+    });
+
+    test('should update location and recalculate ETA', async () => {
+      const locationData = {
+        coordinates: [-74.005, 40.712],
+        accuracy: 10,
+        heading: 90,
+        speed: 5,
+        batteryLevel: 85
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/location-update`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(locationData);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('Location updated successfully');
+      expect(response.body.location.coordinates).toEqual([-74.005, 40.712]);
+    });
+
+    test('should validate coordinates', async () => {
+      const locationData = {
+        coordinates: [-74.005] // Missing latitude
+      };
+
+      const response = await request(app)
+        .post(`/api/delivery/${offerId}/location-update`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider')
+        .send(locationData);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.errors).toBeDefined();
+    });
+  });
+
+  describe('GET /api/delivery/:offerId/history', () => {
+    let tracking;
+
+    beforeEach(async () => {
+      tracking = await DeliveryTracking.createForOffer(offer);
+      await tracking.addEvent('heading_to_pickup', { notes: 'Started journey' });
+      await tracking.addEvent('arrived_at_pickup', { notes: 'Arrived at pickup' });
+    });
+
+    test('should get delivery history for business owner', async () => {
+      const response = await request(app)
+        .get(`/api/delivery/${offerId}/history`)
+        .set('x-auth-user-id', businessId.toString())
+        .set('x-auth-user-role', 'business');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.history).toBeDefined();
+      expect(response.body.history.events).toHaveLength(3); // Initial + 2 added events
+      expect(response.body.history.currentStatus).toBe('arrived_at_pickup');
+    });
+
+    test('should get delivery history for assigned rider', async () => {
+      const response = await request(app)
+        .get(`/api/delivery/${offerId}/history`)
+        .set('x-auth-user-id', riderId.toString())
+        .set('x-auth-user-role', 'rider');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.history).toBeDefined();
+    });
+
+    test('should return 403 for unauthorized user', async () => {
+      const unauthorizedId = new mongoose.Types.ObjectId();
+      
+      const response = await request(app)
+        .get(`/api/delivery/${offerId}/history`)
+        .set('x-auth-user-id', unauthorizedId.toString())
+        .set('x-auth-user-role', 'rider');
 
       expect(response.status).toBe(403);
       expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Only riders can access active deliveries');
+      expect(response.body.message).toBe('Access denied');
     });
   });
 
-  describe('GET /api/delivery/business/deliveries', () => {
-    test('should get deliveries for business', async () => {
-      mockUser.role = 'business';
-      
-      const businessDeliveries = [
-        {
-          ...mockTracking,
-          offer: { title: 'Delivery 1' },
-          rider: { name: 'Rider 1' }
-        }
-      ];
+  describe('Admin Endpoints', () => {
+    describe('GET /api/delivery/status/:status', () => {
+      test('should get deliveries by status for admin', async () => {
+        await DeliveryTracking.createForOffer(offer);
 
-      DeliveryTracking.getBusinessDeliveries = jest.fn().mockResolvedValue(businessDeliveries);
+        const response = await request(app)
+          .get('/api/delivery/status/accepted')
+          .set('x-auth-user-id', new mongoose.Types.ObjectId().toString())
+          .set('x-auth-user-role', 'admin');
 
-      const response = await request(app)
-        .get('/api/delivery/business/deliveries?status=in_transit&page=1&limit=10');
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(response.body.data.deliveries).toHaveLength(1);
-      expect(DeliveryTracking.getBusinessDeliveries).toHaveBeenCalledWith(
-        mockUser.id,
-        {
-          status: 'in_transit',
-          limit: 10,
-          skip: 0
-        }
-      );
-    });
-
-    test('should reject non-business users', async () => {
-      const response = await request(app)
-        .get('/api/delivery/business/deliveries');
-
-      expect(response.status).toBe(403);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Only businesses can access delivery list');
-    });
-  });
-
-  describe('PUT /api/delivery/:trackingId/estimate', () => {
-    test('should update delivery estimate', async () => {
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(mockTracking);
-
-      const response = await request(app)
-        .put(`/api/delivery/${mockTracking._id}/estimate`)
-        .send({
-          distance: 10,
-          traffic: 'heavy',
-          weather: 'rain',
-          timeOfDay: 'rush_hour'
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(mockTracking.updateEstimatedDelivery).toHaveBeenCalledWith({
-        distance: 10,
-        traffic: 'heavy',
-        weather: 'rain',
-        timeOfDay: 'rush_hour'
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.deliveries).toHaveLength(1);
+        expect(response.body.pagination).toBeDefined();
       });
-    });
-  });
 
-  describe('GET /api/delivery/stats', () => {
-    test('should get delivery statistics for rider', async () => {
-      const mockStats = {
-        totalDeliveries: 25,
-        statusBreakdown: { completed: 20, in_transit: 3, cancelled: 2 },
-        completionRate: 80,
-        averageDuration: 45,
-        averageDistance: 5.5
-      };
+      test('should return 403 for non-admin users', async () => {
+        const response = await request(app)
+          .get('/api/delivery/status/accepted')
+          .set('x-auth-user-id', riderId.toString())
+          .set('x-auth-user-role', 'rider');
 
-      DeliveryTracking.getDeliveryStats = jest.fn().mockResolvedValue(mockStats);
-
-      const response = await request(app)
-        .get('/api/delivery/stats?startDate=2024-01-01&endDate=2024-01-31');
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(response.body.data.stats).toEqual(mockStats);
-      expect(DeliveryTracking.getDeliveryStats).toHaveBeenCalledWith({
-        startDate: '2024-01-01',
-        endDate: '2024-01-31',
-        riderId: mockUser.id
+        expect(response.status).toBe(403);
       });
     });
 
-    test('should get delivery statistics for business', async () => {
-      mockUser.role = 'business';
-      
-      const mockStats = {
-        totalDeliveries: 15,
-        statusBreakdown: { completed: 12, in_transit: 2, cancelled: 1 },
-        completionRate: 80,
-        averageDuration: 40,
-        averageDistance: 4.2
-      };
+    describe('GET /api/delivery/stats', () => {
+      test('should get delivery statistics for admin', async () => {
+        await DeliveryTracking.createForOffer(offer);
 
-      DeliveryTracking.getDeliveryStats = jest.fn().mockResolvedValue(mockStats);
+        const response = await request(app)
+          .get('/api/delivery/stats')
+          .set('x-auth-user-id', new mongoose.Types.ObjectId().toString())
+          .set('x-auth-user-role', 'admin');
 
-      const response = await request(app)
-        .get('/api/delivery/stats');
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(DeliveryTracking.getDeliveryStats).toHaveBeenCalledWith({
-        startDate: undefined,
-        endDate: undefined,
-        businessId: mockUser.id
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.stats).toBeDefined();
+        expect(response.body.stats.activeDeliveries).toBeDefined();
+        expect(response.body.stats.statusBreakdown).toBeDefined();
       });
     });
-  });
 
-  describe('Error Handling', () => {
-    test('should handle database errors gracefully', async () => {
-      DeliveryTracking.findById = jest.fn().mockRejectedValue(new Error('Database connection failed'));
+    describe('GET /api/delivery/analytics/performance', () => {
+      test('should get performance analytics for admin', async () => {
+        // Create completed delivery
+        const completedTracking = await DeliveryTracking.createForOffer(offer);
+        completedTracking.currentStatus = 'completed';
+        completedTracking.isActive = false;
+        completedTracking.completedAt = new Date();
+        await completedTracking.save();
 
-      const response = await request(app)
-        .get(`/api/delivery/${mockTracking._id}`);
+        const response = await request(app)
+          .get('/api/delivery/analytics/performance')
+          .query({ period: 'week' })
+          .set('x-auth-user-id', new mongoose.Types.ObjectId().toString())
+          .set('x-auth-user-role', 'admin');
 
-      expect(response.status).toBe(500);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Failed to retrieve delivery tracking');
-    });
-
-    test('should handle missing tracking gracefully', async () => {
-      DeliveryTracking.findById = jest.fn().mockResolvedValue(null);
-
-      const response = await request(app)
-        .put(`/api/delivery/nonexistent/status`)
-        .send({ status: 'picked_up' });
-
-      expect(response.status).toBe(404);
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toBe('Delivery tracking not found');
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.analytics).toBeDefined();
+        expect(response.body.analytics.summary).toBeDefined();
+        expect(response.body.analytics.dailyTrend).toBeDefined();
+      });
     });
   });
 });
