@@ -4,8 +4,9 @@ const User = require('../models/User');
 
 describe('Auth Routes', () => {
   beforeEach(async () => {
-    // Clear users before each test (in a real app, you'd use a test database)
-    await User.deleteMany({});
+    // Clear users before each test (using in-memory DB)
+    const inMemoryDB = require('../services/InMemoryDB');
+    await inMemoryDB.clearUsers();
   });
 
   describe('POST /api/auth/register/business', () => {
@@ -30,7 +31,7 @@ describe('Auth Routes', () => {
         .send(businessData)
         .expect(201);
 
-      expect(response.body.message).toBe('Business registered successfully');
+      expect(response.body.message).toBe('Business registered successfully. Please check your email to verify your account.');
       expect(response.body.user.role).toBe('business');
       expect(response.body.user.businessName).toBe('Quick Delivery Co');
       expect(response.body.user.businessPhone).toBe('+1-555-0123');
@@ -129,7 +130,7 @@ describe('Auth Routes', () => {
         .send(riderData)
         .expect(201);
 
-      expect(response.body.message).toBe('Rider registered successfully');
+      expect(response.body.message).toBe('Rider registered successfully. Please check your email to verify your account.');
       expect(response.body.user.role).toBe('rider');
       expect(response.body.user.phone).toBe('+1-555-1234');
       expect(response.body.user.vehicleType).toBe('bike');
@@ -189,7 +190,7 @@ describe('Auth Routes', () => {
         .send(riderData)
         .expect(201);
 
-      expect(response.body.message).toBe('Rider registered successfully');
+      expect(response.body.message).toBe('Rider registered successfully. Please check your email to verify your account.');
       expect(response.body.user.role).toBe('rider');
       expect(response.body.user.vehicleType).toBe('scooter');
     });
@@ -209,10 +210,10 @@ describe('Auth Routes', () => {
         .send(basicData)
         .expect(201);
 
-      expect(response.body.message).toBe('Basic user registered. Please complete your profile.');
+      expect(response.body.message).toBe('Basic user registered. Please check your email to verify your account and complete your profile.');
       expect(response.body.nextStep).toBe('Complete your profile at /api/auth/register/business');
-      expect(response.body.endpoints.business).toBe('/api/auth/register/business');
-      expect(response.body.endpoints.rider).toBe('/api/auth/register/rider');
+      expect(response.body.verificationSent).toBe(true);
+      expect(response.body.verificationLink).toContain('/verify-email?token=');
     });
 
     test('should return error for missing fields', async () => {
@@ -314,6 +315,149 @@ describe('Auth Routes', () => {
         .expect(400);
 
       expect(response.body.message).toBe('Invalid credentials');
+    });
+  });
+
+  describe('POST /api/auth/resend-verification', () => {
+    test('should resend verification email for unverified user', async () => {
+      // First register a user
+      const userData = {
+        name: 'Test User',
+        email: 'test@example.com',
+        password: 'password123',
+        businessName: 'Test Business',
+        businessAddress: {
+          street: '123 Test St',
+          city: 'Test City',
+          state: 'TS',
+          zipCode: '12345'
+        },
+        businessPhone: '+1-555-0000'
+      };
+
+      await request(app)
+        .post('/api/auth/register/business')
+        .send(userData)
+        .expect(201);
+
+      // Now resend verification
+      const response = await request(app)
+        .post('/api/auth/resend-verification')
+        .send({ email: 'test@example.com' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('Verification email sent. Please check your inbox.');
+    });
+
+    test('should handle already verified user', async () => {
+      // First register and verify a user
+      const userData = {
+        name: 'Verified User',
+        email: 'verified@example.com',
+        password: 'password123',
+        businessName: 'Verified Business',
+        businessAddress: {
+          street: '123 Verified St',
+          city: 'Verified City',
+          state: 'VC',
+          zipCode: '12345'
+        },
+        businessPhone: '+1-555-1111'
+      };
+
+      await request(app)
+        .post('/api/auth/register/business')
+        .send(userData)
+        .expect(201);
+
+      // Manually verify the user
+      const user = await User.findOne({ email: 'verified@example.com' });
+      await User.findByIdAndUpdate(user._id, { isVerified: true });
+
+      // Try to resend verification
+      const response = await request(app)
+        .post('/api/auth/resend-verification')
+        .send({ email: 'verified@example.com' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('Your email is already verified. You can log in.');
+      expect(response.body.alreadyVerified).toBe(true);
+    });
+
+    test('should handle non-existent user gracefully', async () => {
+      const response = await request(app)
+        .post('/api/auth/resend-verification')
+        .send({ email: 'nonexistent@example.com' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('If your email exists in our system, a verification link has been sent.');
+    });
+
+    test('should return error for missing email', async () => {
+      const response = await request(app)
+        .post('/api/auth/resend-verification')
+        .send({})
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toBe('Email is required');
+      expect(response.body.error).toBe('MISSING_EMAIL');
+    });
+
+    test('should handle invalid email format gracefully', async () => {
+      const response = await request(app)
+        .post('/api/auth/resend-verification')
+        .send({ email: 'invalid-email' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('If your email exists in our system, a verification link has been sent.');
+    });
+
+    test('should respect rate limiting', async () => {
+      const email = 'ratelimit@example.com';
+      
+      // First register a user
+      const userData = {
+        name: 'Rate Limit User',
+        email: email,
+        password: 'password123',
+        businessName: 'Rate Limit Business',
+        businessAddress: {
+          street: '123 Rate St',
+          city: 'Rate City',
+          state: 'RC',
+          zipCode: '12345'
+        },
+        businessPhone: '+1-555-2222'
+      };
+
+      await request(app)
+        .post('/api/auth/register/business')
+        .send(userData)
+        .expect(201);
+
+      // Make multiple requests quickly
+      const requests = [];
+      for (let i = 0; i < 5; i++) {
+        requests.push(
+          request(app)
+            .post('/api/auth/resend-verification')
+            .send({ email })
+        );
+      }
+
+      const responses = await Promise.all(requests);
+      
+      // First few should succeed, later ones should be rate limited
+      const successCount = responses.filter(r => r.status === 200).length;
+      const rateLimitedCount = responses.filter(r => r.status === 429).length;
+      
+      expect(successCount).toBeLessThanOrEqual(3); // Rate limit is 3 per hour
+      expect(rateLimitedCount).toBeGreaterThan(0);
     });
   });
 });

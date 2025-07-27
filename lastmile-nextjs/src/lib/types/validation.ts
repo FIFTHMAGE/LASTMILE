@@ -205,3 +205,210 @@ export function isInRange(value: number, min: number, max: number): boolean {
 export function isValidLength(str: string, min: number, max: number): boolean {
   return str.length >= min && str.length <= max;
 }
+
+// Request validation types
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface BusinessRegistrationRequest {
+  email: string;
+  password: string;
+  confirmPassword: string;
+  businessName: string;
+  contactName: string;
+  phone: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    country: string;
+  };
+}
+
+export interface RiderRegistrationRequest {
+  email: string;
+  password: string;
+  confirmPassword: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  vehicleType: VehicleType;
+  licenseNumber: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    country: string;
+  };
+}
+
+// Request validation functions
+export function validateLoginRequest(data: LoginRequest): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.email)) {
+    errors.push('Email is required');
+  } else if (!isValidEmail(data.email)) {
+    errors.push('Please enter a valid email address');
+  }
+
+  if (!isNonEmptyString(data.password)) {
+    errors.push('Password is required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateBusinessRegistrationRequest(data: BusinessRegistrationRequest): ValidationResult {
+  const errors: string[] = [];
+
+  // Email validation
+  if (!isNonEmptyString(data.email)) {
+    errors.push('Email is required');
+  } else if (!isValidEmail(data.email)) {
+    errors.push('Please enter a valid email address');
+  }
+
+  // Password validation
+  if (!isNonEmptyString(data.password)) {
+    errors.push('Password is required');
+  } else {
+    const passwordValidation = validatePassword(data.password);
+    if (!passwordValidation.isValid) {
+      errors.push(...passwordValidation.errors);
+    }
+  }
+
+  // Confirm password validation
+  if (!isNonEmptyString(data.confirmPassword)) {
+    errors.push('Please confirm your password');
+  } else if (data.password !== data.confirmPassword) {
+    errors.push('Passwords do not match');
+  }
+
+  // Business name validation
+  if (!isNonEmptyString(data.businessName)) {
+    errors.push('Business name is required');
+  }
+
+  // Contact name validation
+  if (!isNonEmptyString(data.contactName)) {
+    errors.push('Contact name is required');
+  }
+
+  // Phone validation
+  if (!isNonEmptyString(data.phone)) {
+    errors.push('Phone number is required');
+  } else if (!isValidPhone(data.phone)) {
+    errors.push('Please enter a valid phone number');
+  }
+
+  // Address validation
+  if (!data.address) {
+    errors.push('Address is required');
+  } else {
+    if (!isNonEmptyString(data.address.street)) {
+      errors.push('Street address is required');
+    }
+    if (!isNonEmptyString(data.address.city)) {
+      errors.push('City is required');
+    }
+    if (!isNonEmptyString(data.address.state)) {
+      errors.push('State is required');
+    }
+    if (!isNonEmptyString(data.address.zipCode)) {
+      errors.push('ZIP code is required');
+    } else if (!isValidZipCode(data.address.zipCode)) {
+      errors.push('Please enter a valid ZIP code');
+    }
+    if (!isNonEmptyString(data.address.country)) {
+      errors.push('Country is required');
+    }
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateRiderRegistrationRequest(data: RiderRegistrationRequest): ValidationResult {
+  const errors: string[] = [];
+
+  // Email validation
+  if (!isNonEmptyString(data.email)) {
+    errors.push('Email is required');
+  } else if (!isValidEmail(data.email)) {
+    errors.push('Please enter a valid email address');
+  }
+
+  // Password validation
+  if (!isNonEmptyString(data.password)) {
+    errors.push('Password is required');
+  } else {
+    const passwordValidation = validatePassword(data.password);
+    if (!passwordValidation.isValid) {
+      errors.push(...passwordValidation.errors);
+    }
+  }
+
+  // Confirm password validation
+  if (!isNonEmptyString(data.confirmPassword)) {
+    errors.push('Please confirm your password');
+  } else if (data.password !== data.confirmPassword) {
+    errors.push('Passwords do not match');
+  }
+
+  // Name validation
+  if (!isNonEmptyString(data.firstName)) {
+    errors.push('First name is required');
+  }
+  if (!isNonEmptyString(data.lastName)) {
+    errors.push('Last name is required');
+  }
+
+  // Phone validation
+  if (!isNonEmptyString(data.phone)) {
+    errors.push('Phone number is required');
+  } else if (!isValidPhone(data.phone)) {
+    errors.push('Please enter a valid phone number');
+  }
+
+  // Vehicle type validation
+  if (!data.vehicleType) {
+    errors.push('Vehicle type is required');
+  } else if (!isValidVehicleType(data.vehicleType)) {
+    errors.push('Please select a valid vehicle type');
+  }
+
+  // License number validation
+  if (!isNonEmptyString(data.licenseNumber)) {
+    errors.push('License number is required');
+  }
+
+  // Address validation
+  if (!data.address) {
+    errors.push('Address is required');
+  } else {
+    if (!isNonEmptyString(data.address.street)) {
+      errors.push('Street address is required');
+    }
+    if (!isNonEmptyString(data.address.city)) {
+      errors.push('City is required');
+    }
+    if (!isNonEmptyString(data.address.state)) {
+      errors.push('State is required');
+    }
+    if (!isNonEmptyString(data.address.zipCode)) {
+      errors.push('ZIP code is required');
+    } else if (!isValidZipCode(data.address.zipCode)) {
+      errors.push('Please enter a valid ZIP code');
+    }
+    if (!isNonEmptyString(data.address.country)) {
+      errors.push('Country is required');
+    }
+  }
+
+  return createValidationResult(errors);
+}

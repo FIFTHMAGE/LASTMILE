@@ -19,18 +19,31 @@ import NotificationsPage from './pages/Notifications/NotificationsPage';
 import LoadingSpinner from './components/UI/LoadingSpinner';
 
 function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, isInitialized, isAuthenticated } = useAuth();
 
-  if (loading) {
+  console.log('🔍 App render:', { 
+    user: user?.email, 
+    loading, 
+    isInitialized, 
+    isAuthenticated,
+    role: user?.role 
+  });
+
+  // Show loading spinner while initializing authentication
+  if (loading || !isInitialized) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" />
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
       </div>
     );
   }
 
   // Public routes (no authentication required)
-  if (!user) {
+  if (!isAuthenticated || !user) {
+    console.log('🔍 Rendering public routes');
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -41,6 +54,8 @@ function App() {
       </Routes>
     );
   }
+
+  console.log('🔍 Rendering authenticated routes for role:', user.role);
 
   // Authenticated routes
   return (
@@ -57,6 +72,8 @@ function App() {
             <Route path="/offers" element={<BusinessOffers />} />
             <Route path="/offers/create" element={<CreateOffer />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/register" element={<Navigate to="/dashboard" replace />} />
           </>
         )}
 
@@ -68,6 +85,8 @@ function App() {
             <Route path="/deliveries" element={<RiderDeliveries />} />
             <Route path="/earnings" element={<RiderEarnings />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/register" element={<Navigate to="/dashboard" replace />} />
           </>
         )}
 
@@ -75,12 +94,20 @@ function App() {
         {user.role === 'admin' && (
           <>
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
             <Route path="/" element={<Navigate to="/admin" replace />} />
+            <Route path="/login" element={<Navigate to="/admin" replace />} />
+            <Route path="/register" element={<Navigate to="/admin" replace />} />
           </>
         )}
 
-        {/* Fallback route */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Fallback route - redirect to appropriate dashboard */}
+        <Route path="*" element={
+          <Navigate 
+            to={user.role === 'admin' ? '/admin' : '/dashboard'} 
+            replace 
+          />
+        } />
       </Routes>
     </Layout>
   );

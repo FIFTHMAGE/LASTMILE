@@ -1,5 +1,7 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { authDebug } from '../utils/authDebug';
+import { tokenUtils } from '../utils/tokenUtils';
 
 // Create axios instance
 const api = axios.create({
@@ -10,29 +12,58 @@ const api = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = tokenUtils.getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      authDebug.api(config.method, config.url, { hasAuth: true });
+    } else {
+      authDebug.api(config.method, config.url, { hasAuth: false });
     }
     return config;
   },
   (error) => {
+    authDebug.error('API Request Failed', error);
     return Promise.reject(error);
   }
 );
 
 // Response interceptor for error handling
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    authDebug.log('API Response Success', { 
+      url: response.config.url, 
+      status: response.status 
+    });
+    return response;
+  },
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    const url = error.config?.url;
+    
+    authDebug.error('API Response Error', error, { 
+      url, 
+      status,
+      data: error.response?.data 
+    });
+    
+    if (status === 401) {
       // Token expired or invalid
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    } else if (error.response?.status === 429) {
+      authDebug.log('Token expired, clearing auth state');
+      tokenUtils.removeToken();
+      
+      // Only redirect if not already on login page
+      if (!window.location.pathname.includes('/login')) {
+        authDebug.navigation(window.location.pathname, '/login', 'Token expired');
+        window.location.href = '/login';
+      }
+    } else if (status === 429) {
       toast.error('Too many requests. Please try again later.');
-    } else if (error.response?.status >= 500) {
+    } else if (status >= 500) {
       toast.error('Server error. Please try again later.');
+    } else if (status === 400 && url?.includes('/auth/login')) {
+      // Don't show toast for login errors, let the login form handle it
+    } else if (error.code === 'NETWORK_ERROR' || !error.response) {
+      toast.error('Network error. Please check your connection.');
     }
     
     return Promise.reject(error);

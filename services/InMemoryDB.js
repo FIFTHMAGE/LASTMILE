@@ -45,6 +45,11 @@ class InMemoryDB {
     return this.users[userIndex];
   }
 
+  async clearUsers() {
+    this.users = [];
+    return true;
+  }
+
   // Verification token methods
   async createVerificationToken(userId, token, type = 'email_verification') {
     const verificationToken = {

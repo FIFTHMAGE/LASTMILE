@@ -104,11 +104,11 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // Webpack configuration
-  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
-    // Add custom webpack configurations here if needed
-    return config;
-  },
+  // Webpack configuration (disabled when using Turbopack)
+  // webpack: (config) => {
+  //   // Add custom webpack configurations here if needed
+  //   return config;
+  // },
 
   // Output configuration for static export (if needed)
   output: 'standalone',
@@ -122,8 +122,7 @@ const nextConfig: NextConfig = {
   // React strict mode
   reactStrictMode: true,
 
-  // SWC minification
-  swcMinify: true,
+  // SWC minification is enabled by default in Next.js 15
 };
 
 export default nextConfig;

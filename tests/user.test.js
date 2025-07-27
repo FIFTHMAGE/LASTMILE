@@ -199,4 +199,76 @@ describe('User Model', () => {
       expect(user.profile.completedDeliveries).toBe(0);
     });
   });
+
+  describe('Email Verification', () => {
+    test('should default isVerified to false for new users', () => {
+      const userData = {
+        name: 'Test User',
+        email: 'test@example.com',
+        password: 'hashedpassword123',
+        role: 'rider',
+        profile: {
+          phone: '+1-555-0000',
+          vehicleType: 'bike'
+        }
+      };
+
+      const user = new User(userData);
+      expect(user.isVerified).toBe(false);
+    });
+
+    test('should allow setting isVerified to true', () => {
+      const userData = {
+        name: 'Verified User',
+        email: 'verified@example.com',
+        password: 'hashedpassword123',
+        role: 'business',
+        isVerified: true,
+        profile: {
+          businessName: 'Verified Business',
+          businessAddress: {
+            street: '123 Verified St',
+            city: 'Verified City',
+            state: 'VC',
+            zipCode: '12345'
+          },
+          businessPhone: '+1-555-1111'
+        }
+      };
+
+      const user = new User(userData);
+      expect(user.isVerified).toBe(true);
+    });
+
+    test('should include verification status in profile data', () => {
+      const user = new User({
+        name: 'Profile Test',
+        email: 'profile@example.com',
+        password: 'hashedpassword123',
+        role: 'rider',
+        isVerified: true,
+        profile: {
+          phone: '+1-555-2222',
+          vehicleType: 'scooter'
+        }
+      });
+
+      const profileData = user.getProfileData();
+      expect(profileData.isVerified).toBe(true);
+    });
+
+    test('should handle verification status for admin users', () => {
+      const adminUser = new User({
+        name: 'Admin User',
+        email: 'admin@example.com',
+        password: 'hashedpassword123',
+        role: 'admin',
+        isVerified: true
+      });
+
+      const profileData = adminUser.getProfileData();
+      expect(profileData.isVerified).toBe(true);
+      expect(profileData.permissions).toContain('manage_users');
+    });
+  });
 });

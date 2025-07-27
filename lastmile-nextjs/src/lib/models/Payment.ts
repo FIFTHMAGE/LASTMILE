@@ -19,4 +19,4 @@ import {
 // Extend mongoose Document with our Payment type
 export interface PaymentDocument extends PaymentType, Document {
   calculateEarnings(): EarningsCalculation;
-  ge
+}

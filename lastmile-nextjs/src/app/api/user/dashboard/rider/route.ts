@@ -56,4 +56,4 @@ async function handleGetRiderDashboard(request: NextRequest, user: any) {
       // Total deliveries count
       Offer.countDocuments({ riderId: user.id }),
       
-      // Completed deliverie
+      // Completed deliveries

@@ -100,10 +100,10 @@ userSchema.methods.validateProfile = function() {
   
   if (this.role === 'business') {
     if (!this.profile.businessName) errors.push('Business name is required');
-    if (!this.profile.businessAddress.street) errors.push('Business street address is required');
-    if (!this.profile.businessAddress.city) errors.push('Business city is required');
-    if (!this.profile.businessAddress.state) errors.push('Business state is required');
-    if (!this.profile.businessAddress.zipCode) errors.push('Business zip code is required');
+    if (!this.profile.businessAddress || !this.profile.businessAddress.street) errors.push('Business street address is required');
+    if (!this.profile.businessAddress || !this.profile.businessAddress.city) errors.push('Business city is required');
+    if (!this.profile.businessAddress || !this.profile.businessAddress.state) errors.push('Business state is required');
+    if (!this.profile.businessAddress || !this.profile.businessAddress.zipCode) errors.push('Business zip code is required');
     if (!this.profile.businessPhone) errors.push('Business phone is required');
   }
   
@@ -166,6 +166,24 @@ function User(userData) {
   this.isVerified = this.isVerified || false;
   this.createdAt = this.createdAt || new Date();
   this.updatedAt = this.updatedAt || new Date();
+  
+  // Initialize profile if not exists
+  if (!this.profile) {
+    this.profile = {};
+  }
+  
+  // Set default values for rider fields
+  if (this.role === 'rider') {
+    if (this.profile.isAvailable === undefined) {
+      this.profile.isAvailable = true;
+    }
+    if (this.profile.rating === undefined) {
+      this.profile.rating = 5.0;
+    }
+    if (this.profile.completedDeliveries === undefined) {
+      this.profile.completedDeliveries = 0;
+    }
+  }
   
   // Add methods
   this.validateProfile = userSchema.methods.validateProfile;

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from 'react-query';
-import { businessAPI } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { Card, Button, LoadingSpinner, Badge } from '../../components/UI';
 import { 
   Package, 
@@ -11,23 +10,60 @@ import {
   Plus,
   Eye,
   MapPin,
-  Calendar
+  Calendar,
+
 } from 'lucide-react';
-import { format } from 'date-fns';
 
 const Dashboard = () => {
-  const [timeRange, setTimeRange] = useState('month');
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [dashboardData, setDashboardData] = useState(null);
 
-  // Fetch dashboard data
-  const { data: dashboardData, isLoading, error } = useQuery(
-    ['businessDashboard', timeRange],
-    () => businessAPI.getDashboard({ period: timeRange }),
-    {
-      refetchInterval: 30000, // Refresh every 30 seconds
-    }
-  );
+  useEffect(() => {
+    // Simulate loading and set mock data
+    const timer = setTimeout(() => {
+      setDashboardData({
+        overview: {
+          totalOffers: 12,
+          activeOffers: 3,
+          totalSpent: 98200.00,
+          avgDeliveryTime: 28,
+          newOffersThisMonth: 5,
+          completionRate: 85,
+          thisMonthSpent: 35700.00,
+          onTimeRate: 92
+        },
+        recentOffers: [
+          {
+            id: '1',
+            title: 'Document Delivery to Downtown',
+            status: 'in_transit',
+            pickup: { address: '123 Main St, City Center' },
+            createdAt: new Date().toISOString(),
+            payment: { amount: 10000.00 },
+            rider: { name: 'John Doe' }
+          },
+          {
+            id: '2',
+            title: 'Package Pickup from Warehouse',
+            status: 'open',
+            pickup: { address: '456 Industrial Ave, Warehouse District' },
+            createdAt: new Date(Date.now() - 86400000).toISOString(),
+            payment: { amount: 14000.00 }
+          }
+        ],
+        monthlyTrends: [
+          { month: 'January', offers: 8, totalSpent: 72000.00, completionRate: 88 },
+          { month: 'February', offers: 12, totalSpent: 98200.00, completionRate: 85 }
+        ]
+      });
+      setLoading(false);
+    }, 1000);
 
-  if (isLoading) {
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <LoadingSpinner size="lg" />
@@ -35,25 +71,14 @@ const Dashboard = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-red-600">Failed to load dashboard data</p>
-        <Button onClick={() => window.location.reload()} className="mt-4">
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
-  const { overview, recentOffers, monthlyTrends } = dashboardData?.data || {};
+  const { overview, recentOffers, monthlyTrends } = dashboardData || {};
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Business Dashboard</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user?.name}!</h1>
           <p className="text-gray-600">Manage your delivery operations</p>
         </div>
         <Link to="/offers/create">
@@ -82,10 +107,10 @@ const Dashboard = () => {
         />
         <StatsCard
           title="Total Spent"
-          value={`$${(overview?.totalSpent || 0).toFixed(2)}`}
+          value={`₦${(overview?.totalSpent || 0).toLocaleString('en-NG')}`}
           icon={<DollarSign className="h-6 w-6" />}
           color="green"
-          change={`$${(overview?.thisMonthSpent || 0).toFixed(2)} this month`}
+          change={`₦${(overview?.thisMonthSpent || 0).toLocaleString('en-NG')} this month`}
         />
         <StatsCard
           title="Avg Delivery Time"
@@ -130,15 +155,7 @@ const Dashboard = () => {
         <Card>
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Monthly Performance</h3>
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value)}
-              className="text-sm border border-gray-300 rounded-md px-3 py-1"
-            >
-              <option value="month">This Month</option>
-              <option value="quarter">This Quarter</option>
-              <option value="year">This Year</option>
-            </select>
+            <div className="text-sm text-gray-500">Last 2 months</div>
           </div>
           
           <div className="space-y-4">
@@ -150,7 +167,7 @@ const Dashboard = () => {
                     <p className="text-sm text-gray-600">{trend.offers} offers</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-medium">${trend.totalSpent?.toFixed(2)}</p>
+                    <p className="font-medium">₦{trend.totalSpent?.toLocaleString('en-NG')}</p>
                     <p className="text-sm text-gray-600">{trend.completionRate}% completed</p>
                   </div>
                 </div>
@@ -256,11 +273,11 @@ const OfferCard = ({ offer }) => {
           </div>
           <div className="flex items-center">
             <Calendar className="h-4 w-4 mr-1" />
-            <span>{format(new Date(offer.createdAt), 'MMM dd')}</span>
+            <span>{new Date(offer.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
           </div>
           <div className="flex items-center">
             <DollarSign className="h-4 w-4 mr-1" />
-            <span>${offer.payment?.amount}</span>
+            <span>₦{offer.payment?.amount?.toLocaleString('en-NG')}</span>
           </div>
         </div>
         

@@ -30,7 +30,7 @@ export interface AuthContextType {
   updateProfile: (data: any) => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export interface AuthProviderProps {
   children: React.ReactNode;

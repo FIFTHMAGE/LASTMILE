@@ -208,7 +208,10 @@ export {
 // Validation utilities
 export type {
   PasswordValidation,
-  ValidationResult
+  ValidationResult,
+  LoginRequest,
+  BusinessRegistrationRequest,
+  RiderRegistrationRequest
 } from './validation';
 
 export {
@@ -229,7 +232,10 @@ export {
   isNonEmptyArray,
   isNonEmptyObject,
   isInRange,
-  isValidLength
+  isValidLength,
+  validateLoginRequest,
+  validateBusinessRegistrationRequest,
+  validateRiderRegistrationRequest
 } from './validation';
 
 // Common utility types

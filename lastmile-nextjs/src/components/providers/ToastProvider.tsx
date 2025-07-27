@@ -40,6 +40,11 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
   position = 'top-right' 
 }) => {
   const { toasts, addToast, removeToast, clearAllToasts, toast } = useToast();
+  const [isMounted, setIsMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const contextValue: ToastContextValue = {
     addToast,
@@ -51,7 +56,7 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
   return (
     <ToastContext.Provider value={contextValue}>
       {children}
-      {typeof window !== 'undefined' && createPortal(
+      {isMounted && createPortal(
         <ToastContainer position={position}>
           {toasts.map((toastItem) => (
             <Toast

@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authAPI } from '../services/api';
+import { tokenUtils } from '../utils/tokenUtils';
+import { authDebug } from '../utils/authDebug';
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext();
@@ -15,76 +17,122 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setToken] = useState(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // Initialize token from localStorage on mount
   useEffect(() => {
-    if (token) {
-      // Verify token and get user info
-      verifyToken();
-    } else {
-      setLoading(false);
+    authDebug.log('AuthProvider initializing');
+    
+    // Clean up any invalid tokens first
+    const cleanedUp = tokenUtils.cleanupInvalidTokens();
+    if (cleanedUp) {
+      authDebug.log('Cleaned up invalid tokens');
     }
-  }, [token]);
+    
+    const storedToken = tokenUtils.getToken();
+    
+    if (storedToken && tokenUtils.isValidToken(storedToken)) {
+      authDebug.log('Valid token found', { tokenLength: storedToken.length });
+      setToken(storedToken);
+    } else {
+      authDebug.log('No valid token found');
+      setLoading(false);
+      setIsInitialized(true);
+    }
+  }, []);
 
-  const verifyToken = async () => {
+  // Verify token when token changes
+  useEffect(() => {
+    if (token && !isInitialized) {
+      authDebug.log('Token changed, verifying', { tokenLength: token.length });
+      verifyToken(token);
+    }
+  }, [token, isInitialized]);
+
+  const verifyToken = async (tokenToVerify) => {
+    if (!tokenToVerify) {
+      console.log('❌ No token to verify');
+      setLoading(false);
+      setIsInitialized(true);
+      return false;
+    }
+
     try {
-      if (token.startsWith('demo.')) {
-        // For demo tokens, extract the payload
-        const parts = token.split('.');
-        if (parts.length !== 3) {
-          throw new Error('Invalid token format');
-        }
-        
-        // Decode the payload
-        const payload = JSON.parse(atob(parts[1]));
-        
-        // Check if token is expired
-        if (payload.exp * 1000 < Date.now()) {
-          console.log('Token expired');
-          logout();
-          return;
-        }
+      console.log('🔍 Verifying token...');
+      setLoading(true);
 
-        // Set user from token payload
-        setUser({
-          id: payload.userId || payload._id,
-          email: payload.email,
-          role: payload.role,
-          name: payload.name
-        });
-      } else {
-        // For regular tokens, verify with the server
+      // First check if token is valid format and not expired
+      if (!tokenUtils.isValidToken(tokenToVerify)) {
+        throw new Error('Token is invalid or expired');
+      }
+
+      // Get user data from token
+      let userData = tokenUtils.getUserFromToken(tokenToVerify);
+      
+      if (!userData) {
+        console.log('⚠️ Could not extract user data from token, trying server verification');
+        
+        // If token decode fails, try server verification
         try {
-          const response = await authAPI.refreshToken(token);
+          const response = await authAPI.refreshToken(tokenToVerify);
           if (response.data?.user) {
-            setUser(response.data.user);
+            userData = response.data.user;
+            console.log('✅ Server token verification successful');
           } else {
-            throw new Error('Invalid user data');
+            throw new Error('Invalid user data from server');
           }
-        } catch (error) {
-          console.error('Server token verification failed:', error);
-          logout();
-          return;
+        } catch (serverError) {
+          console.error('❌ Server token verification failed:', serverError);
+          throw serverError;
         }
       }
+
+      if (userData) {
+        setUser(userData);
+        setToken(tokenToVerify);
+        tokenUtils.setToken(tokenToVerify);
+        console.log('✅ User authenticated:', userData.email);
+        return true;
+      } else {
+        throw new Error('No user data available');
+      }
+
     } catch (error) {
-      console.error('Token verification failed:', error);
-      logout();
+      console.error('❌ Token verification failed:', error.message);
+      
+      // Clear invalid token
+      setUser(null);
+      setToken(null);
+      tokenUtils.removeToken();
+      
+      return false;
     } finally {
       setLoading(false);
+      setIsInitialized(true);
     }
   };
 
   const login = async (email, password) => {
     try {
+      console.log('🔍 Login attempt for:', email);
       setLoading(true);
+      
       const response = await authAPI.login(email, password);
+      console.log('✅ Login API response received');
       
       const { user: userData, token: userToken, verification } = response.data;
       
-      setUser(userData);
+      if (!userData || !userToken) {
+        throw new Error('Invalid login response - missing user data or token');
+      }
+
+      console.log('✅ Login successful for:', userData.email, 'Role:', userData.role);
+      
+      // Store token and user data
+      tokenUtils.setToken(userToken);
       setToken(userToken);
-      localStorage.setItem('token', userToken);
+      setUser(userData);
       
       // Show verification warning if needed
       if (verification && !verification.verified) {
@@ -96,9 +144,21 @@ export const AuthProvider = ({ children }) => {
         toast.success(`Welcome back, ${userData.name}!`);
       }
       
+      console.log('✅ Login process completed successfully');
       return userData;
+      
     } catch (error) {
-      const message = error.response?.data?.error?.message || 'Login failed';
+      console.error('❌ Login failed:', error);
+      
+      // Clear any partial state
+      setUser(null);
+      setToken(null);
+      tokenUtils.removeToken();
+      
+      const message = error.response?.data?.message || 
+                     error.response?.data?.error?.message || 
+                     error.message || 
+                     'Login failed';
       toast.error(message);
       throw error;
     } finally {
@@ -136,11 +196,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = (showMessage = true) => {
+    console.log('🔍 Logging out user');
+    
     setUser(null);
     setToken(null);
-    localStorage.removeItem('token');
-    toast.success('Logged out successfully');
+    tokenUtils.removeToken();
+    
+    if (showMessage) {
+      toast.success('Logged out successfully');
+    }
+    
+    console.log('✅ Logout completed');
   };
 
   const updateUser = (updatedUser) => {
@@ -166,11 +233,14 @@ export const AuthProvider = ({ children }) => {
     user,
     token,
     loading,
+    isInitialized,
+    isAuthenticated: !!user && !!token,
     login,
     register,
     logout,
     updateUser,
     resendVerification,
+    verifyToken,
     isVerified: user?.isVerified || false
   };
 

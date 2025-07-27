@@ -9,15 +9,21 @@
   - _Requirements: 1.2, 1.3, 3.1, 3.2_
 
 
-- [ ] 2. Update User Model
+- [x] 2. Update User Model
+
+
   - Add isVerified field to the User model
   - Update User model tests to include verification status
 
   - _Requirements: 1.1, 1.6_
 
+
+
 - [ ] 3. Implement Email Service for Verification
   - Extend EmailService to support verification emails
   - Create email templates for verification
+
+
 
 
 
@@ -31,6 +37,8 @@
     - Create route to verify email tokens
     - Handle token validation and user verification
     - Write tests for the verification endpoint
+
+
     - _Requirements: 1.5, 1.6, 3.3, 3.4_
   
 

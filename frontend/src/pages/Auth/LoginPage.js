@@ -56,15 +56,57 @@ const LoginPage = () => {
     }
 
     setLoading(true);
+    setErrors({}); // Clear any previous errors
+    
     try {
-      await login(formData.email, formData.password);
-      navigate('/dashboard');
+      console.log('🔍 LoginPage: Starting login process');
+      const userData = await login(formData.email, formData.password);
+      
+      if (userData) {
+        console.log('✅ LoginPage: Login successful, navigating to dashboard');
+        console.log('User role:', userData.role);
+        
+        // Navigate based on user role
+        let dashboardPath = '/dashboard';
+        if (userData.role === 'admin') {
+          dashboardPath = '/admin';
+        }
+        
+        // Small delay to ensure auth state is fully updated
+        setTimeout(() => {
+          navigate(dashboardPath, { replace: true });
+        }, 100);
+      } else {
+        throw new Error('Login succeeded but no user data received');
+      }
     } catch (error) {
-      // Error is handled by the auth context and displayed via toast
-      console.error('Login error:', error);
+      console.error('❌ LoginPage: Login error:', error);
+      
+      // Set form-specific errors if needed
+      if (error.response?.status === 400) {
+        setErrors({
+          general: 'Invalid email or password. Please try again.'
+        });
+      } else if (error.response?.status === 429) {
+        setErrors({
+          general: 'Too many login attempts. Please try again later.'
+        });
+      } else {
+        setErrors({
+          general: 'Login failed. Please check your connection and try again.'
+        });
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const fillDemoCredentials = (email, password) => {
+    setFormData({
+      email,
+      password
+    });
+    setErrors({});
   };
 
   return (
@@ -85,6 +127,11 @@ const LoginPage = () => {
 
         {/* Login Form */}
         <Card className="mt-8">
+          {errors.general && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-sm text-red-600">{errors.general}</p>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-6">
             <Input
               label="Email Address"
@@ -181,11 +228,32 @@ const LoginPage = () => {
         {/* Demo credentials */}
         <Card className="bg-blue-50 border-blue-200">
           <div className="text-center">
-            <h3 className="text-sm font-medium text-blue-900 mb-2">Demo Credentials</h3>
-            <div className="text-xs text-blue-700 space-y-1">
-              <p><strong>Business:</strong> business@demo.com / password123</p>
-              <p><strong>Rider:</strong> rider@demo.com / password123</p>
-              <p><strong>Admin:</strong> admin@demo.com / password123</p>
+            <h3 className="text-sm font-medium text-blue-900 mb-2">🧪 Demo Credentials</h3>
+            <div className="text-xs text-blue-700 space-y-2">
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials('business@demo.com', 'demo123')}
+                className="block w-full text-left p-2 rounded hover:bg-blue-100 transition-colors"
+              >
+                <strong>Business:</strong> business@demo.com / demo123
+              </button>
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials('rider@demo.com', 'demo123')}
+                className="block w-full text-left p-2 rounded hover:bg-blue-100 transition-colors"
+              >
+                <strong>Rider:</strong> rider@demo.com / demo123
+              </button>
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials('admin@demo.com', 'demo123')}
+                className="block w-full text-left p-2 rounded hover:bg-blue-100 transition-colors"
+              >
+                <strong>Admin:</strong> admin@demo.com / demo123
+              </button>
+            </div>
+            <div className="mt-2 text-xs text-blue-600">
+              <p>👆 Click on any credential to auto-fill the form</p>
             </div>
           </div>
         </Card>

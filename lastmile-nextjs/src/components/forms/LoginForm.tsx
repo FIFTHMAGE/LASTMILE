@@ -65,6 +65,11 @@ export function LoginForm({ onSuccess, redirectTo }: LoginFormProps) {
     }
   };
 
+  const fillDemoCredentials = (email: string, password: string) => {
+    setFormData({ email, password });
+    setErrors([]);
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Error display */}
@@ -164,6 +169,42 @@ export function LoginForm({ onSuccess, redirectTo }: LoginFormProps) {
           'Sign in'
         )}
       </Button>
+
+      {/* Demo credentials */}
+      <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+        <div className="text-center">
+          <h3 className="text-sm font-medium text-blue-900 mb-2">🧪 Demo Credentials</h3>
+          <div className="text-xs text-blue-700 space-y-2">
+            <button
+              type="button"
+              onClick={() => fillDemoCredentials('business@demo.com', 'demo123')}
+              className="block w-full text-left p-2 rounded hover:bg-blue-100 transition-colors"
+              disabled={loading}
+            >
+              <strong>Business:</strong> business@demo.com / demo123
+            </button>
+            <button
+              type="button"
+              onClick={() => fillDemoCredentials('rider@demo.com', 'demo123')}
+              className="block w-full text-left p-2 rounded hover:bg-blue-100 transition-colors"
+              disabled={loading}
+            >
+              <strong>Rider:</strong> rider@demo.com / demo123
+            </button>
+            <button
+              type="button"
+              onClick={() => fillDemoCredentials('admin@demo.com', 'demo123')}
+              className="block w-full text-left p-2 rounded hover:bg-blue-100 transition-colors"
+              disabled={loading}
+            >
+              <strong>Admin:</strong> admin@demo.com / demo123
+            </button>
+          </div>
+          <div className="mt-2 text-xs text-blue-600">
+            <p>👆 Click on any credential to auto-fill the form</p>
+          </div>
+        </div>
+      </div>
 
       {/* Sign up link */}
       <div className="text-center">
