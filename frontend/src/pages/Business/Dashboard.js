@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from 'react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import { Card, Button, LoadingSpinner, Badge } from '../../components/UI';
 import { 
@@ -10,58 +11,72 @@ import {
   Plus,
   Eye,
   MapPin,
-  Calendar,
-
+  Calendar
 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { format } from 'date-fns';
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [dashboardData, setDashboardData] = useState(null);
+  const [timeRange, setTimeRange] = useState('month');
 
-  useEffect(() => {
-    // Simulate loading and set mock data
-    const timer = setTimeout(() => {
-      setDashboardData({
-        overview: {
-          totalOffers: 12,
-          activeOffers: 3,
-          totalSpent: 98200.00,
-          avgDeliveryTime: 28,
-          newOffersThisMonth: 5,
-          completionRate: 85,
-          thisMonthSpent: 35700.00,
-          onTimeRate: 92
+  // Mock API function for business dashboard
+  const fetchBusinessDashboard = async () => {
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    return {
+      overview: {
+        totalOffers: 12,
+        activeOffers: 3,
+        totalSpent: 98200.00,
+        avgDeliveryTime: 28,
+        newOffersThisMonth: 5,
+        completionRate: 85,
+        thisMonthSpent: 35700.00,
+        onTimeRate: 92
+      },
+      recentOffers: [
+        {
+          id: '1',
+          title: 'Document Delivery to Downtown',
+          status: 'in_transit',
+          pickup: { address: '123 Main St, City Center' },
+          createdAt: new Date().toISOString(),
+          payment: { amount: 10000.00 },
+          rider: { name: 'John Doe' }
         },
-        recentOffers: [
-          {
-            id: '1',
-            title: 'Document Delivery to Downtown',
-            status: 'in_transit',
-            pickup: { address: '123 Main St, City Center' },
-            createdAt: new Date().toISOString(),
-            payment: { amount: 10000.00 },
-            rider: { name: 'John Doe' }
-          },
-          {
-            id: '2',
-            title: 'Package Pickup from Warehouse',
-            status: 'open',
-            pickup: { address: '456 Industrial Ave, Warehouse District' },
-            createdAt: new Date(Date.now() - 86400000).toISOString(),
-            payment: { amount: 14000.00 }
-          }
-        ],
-        monthlyTrends: [
-          { month: 'January', offers: 8, totalSpent: 72000.00, completionRate: 88 },
-          { month: 'February', offers: 12, totalSpent: 98200.00, completionRate: 85 }
-        ]
-      });
-      setLoading(false);
-    }, 1000);
+        {
+          id: '2',
+          title: 'Package Pickup from Warehouse',
+          status: 'open',
+          pickup: { address: '456 Industrial Ave, Warehouse District' },
+          createdAt: new Date(Date.now() - 86400000).toISOString(),
+          payment: { amount: 14000.00 }
+        }
+      ],
+      monthlyTrends: [
+        { month: 'Jan', offers: 8, totalSpent: 72000, completionRate: 88 },
+        { month: 'Feb', offers: 12, totalSpent: 98200, completionRate: 85 },
+        { month: 'Mar', offers: 15, totalSpent: 125000, completionRate: 90 },
+        { month: 'Apr', offers: 18, totalSpent: 142000, completionRate: 87 },
+        { month: 'May', offers: 22, totalSpent: 168000, completionRate: 92 },
+        { month: 'Jun', offers: 25, totalSpent: 195000, completionRate: 89 }
+      ]
+    };
+  };
 
-    return () => clearTimeout(timer);
-  }, []);
+  // Fetch dashboard data with react-query
+  const { data: dashboardData, isLoading: loading, error } = useQuery(
+    ['businessDashboard', timeRange],
+    fetchBusinessDashboard,
+    {
+      refetchInterval: 30000, // Refresh every 30 seconds
+      staleTime: 10000 // Consider data stale after 10 seconds
+    }
+  );
+
+
 
   if (loading) {
     return (
@@ -155,29 +170,67 @@ const Dashboard = () => {
         <Card>
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Monthly Performance</h3>
-            <div className="text-sm text-gray-500">Last 2 months</div>
+            <select
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+              className="text-sm border border-gray-300 rounded-md px-3 py-1"
+            >
+              <option value="month">Last 6 Months</option>
+              <option value="quarter">This Quarter</option>
+              <option value="year">This Year</option>
+            </select>
           </div>
           
-          <div className="space-y-4">
-            {monthlyTrends?.length > 0 ? (
-              monthlyTrends.map((trend, index) => (
-                <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium">{trend.month}</p>
-                    <p className="text-sm text-gray-600">{trend.offers} offers</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium">₦{trend.totalSpent?.toLocaleString('en-NG')}</p>
-                    <p className="text-sm text-gray-600">{trend.completionRate}% completed</p>
-                  </div>
+          {/* Chart */}
+          <div className="mb-6">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={monthlyTrends}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis yAxisId="left" orientation="left" />
+                <YAxis yAxisId="right" orientation="right" />
+                <Tooltip 
+                  formatter={(value, name) => {
+                    if (name === 'totalSpent') {
+                      return [`₦${value.toLocaleString('en-NG')}`, 'Total Spent'];
+                    }
+                    return [value, name === 'offers' ? 'Offers' : 'Completion Rate'];
+                  }}
+                />
+                <Line 
+                  yAxisId="left"
+                  type="monotone" 
+                  dataKey="totalSpent" 
+                  stroke="#10B981" 
+                  strokeWidth={2}
+                  dot={{ fill: '#10B981' }}
+                />
+                <Line 
+                  yAxisId="right"
+                  type="monotone" 
+                  dataKey="offers" 
+                  stroke="#3B82F6" 
+                  strokeWidth={2}
+                  dot={{ fill: '#3B82F6' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          
+          {/* Data Table */}
+          <div className="space-y-3">
+            {monthlyTrends?.map((trend, index) => (
+              <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="font-medium text-gray-900">{trend.month}</p>
+                  <p className="text-sm text-gray-600">{trend.offers} offers</p>
                 </div>
-              ))
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <TrendingUp className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No trend data available</p>
+                <div className="text-right">
+                  <p className="font-medium">₦{trend.totalSpent?.toLocaleString('en-NG')}</p>
+                  <p className="text-sm text-gray-600">{trend.completionRate}% completed</p>
+                </div>
               </div>
-            )}
+            ))}
           </div>
         </Card>
       </div>
