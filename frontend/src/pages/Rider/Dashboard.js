@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { riderAPI } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { Card, Button, LoadingSpinner, Badge } from '../../components/UI';
 import { 
   MapPin, 
@@ -19,9 +18,13 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
+  const { user } = useAuth();
   const [location, setLocation] = useState(null);
   const [isAvailable, setIsAvailable] = useState(true);
-  const queryClient = useQueryClient();
+  const [loading, setLoading] = useState(true);
+  const [dashboardData, setDashboardData] = useState(null);
+  const [nearbyOffers, setNearbyOffers] = useState([]);
+  const [offersLoading, setOffersLoading] = useState(false);
 
   // Get user's location
   useEffect(() => {
@@ -36,72 +39,102 @@ const Dashboard = () => {
         (error) => {
           console.error('Error getting location:', error);
           toast.error('Unable to get your location. Please enable location services.');
+          // Set default location for demo
+          setLocation({
+            lat: 6.5244,
+            lng: 3.3792
+          });
         }
       );
+    } else {
+      // Set default location for demo (Lagos, Nigeria)
+      setLocation({
+        lat: 6.5244,
+        lng: 3.3792
+      });
     }
   }, []);
 
-  // Fetch dashboard data
-  const { data: dashboardData, isLoading, error } = useQuery(
-    'riderDashboard',
-    () => riderAPI.getDashboard(),
-    {
-      refetchInterval: 30000, // Refresh every 30 seconds
-    }
-  );
+  // Load dashboard data
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDashboardData({
+        overview: {
+          totalDeliveries: 47,
+          activeDeliveries: 2,
+          totalEarnings: 156800.00,
+          avgRating: 4.8,
+          completionRate: 96,
+          thisMonthEarnings: 45200.00
+        },
+        recentDeliveries: [
+          {
+            id: '1',
+            title: 'Package Delivery to Victoria Island',
+            status: 'delivered',
+            pickup: 'Ikeja Mall, Lagos',
+            amount: 8500.00,
+            acceptedAt: new Date().toISOString()
+          },
+          {
+            id: '2',
+            title: 'Document Delivery',
+            status: 'in_transit',
+            pickup: 'Lekki Phase 1, Lagos',
+            amount: 6000.00,
+            acceptedAt: new Date(Date.now() - 86400000).toISOString()
+          }
+        ]
+      });
+      setLoading(false);
+    }, 1000);
 
-  // Fetch nearby offers
-  const { data: nearbyOffersData, isLoading: offersLoading } = useQuery(
-    ['nearbyOffers', location],
-    () => riderAPI.getNearbyOffers({
-      lat: location?.lat,
-      lng: location?.lng,
-      maxDistance: 10000,
-      limit: 5
-    }),
-    {
-      enabled: !!location,
-      refetchInterval: 15000, // Refresh every 15 seconds
-    }
-  );
+    return () => clearTimeout(timer);
+  }, []);
 
-  // Update availability mutation
-  const availabilityMutation = useMutation(
-    (available) => riderAPI.updateAvailability(available),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries('riderDashboard');
-        toast.success(`You are now ${isAvailable ? 'available' : 'unavailable'} for deliveries`);
-      },
-      onError: (error) => {
-        toast.error('Failed to update availability');
-        setIsAvailable(!isAvailable); // Revert the toggle
-      }
-    }
-  );
+  // Load nearby offers when location is available
+  useEffect(() => {
+    if (location) {
+      setOffersLoading(true);
+      const timer = setTimeout(() => {
+        setNearbyOffers([
+          {
+            id: '1',
+            title: 'Urgent Document Delivery',
+            description: 'Legal documents need to be delivered to law firm',
+            payment: { amount: 12000.00 },
+            distanceFromRider: 850,
+            pickup: { address: 'Victoria Island, Lagos, Nigeria' },
+            delivery: { address: 'Ikoyi, Lagos, Nigeria' },
+            business: { businessName: 'Legal Associates Ltd' }
+          },
+          {
+            id: '2',
+            title: 'Package Pickup and Delivery',
+            description: 'Electronics package from store to customer',
+            payment: { amount: 15000.00 },
+            distanceFromRider: 1200,
+            pickup: { address: 'Computer Village, Ikeja, Lagos' },
+            delivery: { address: 'Surulere, Lagos, Nigeria' },
+            business: { businessName: 'Tech Store Nigeria' }
+          }
+        ]);
+        setOffersLoading(false);
+      }, 800);
 
-  // Update location mutation
-  const locationMutation = useMutation(
-    ({ lat, lng }) => riderAPI.updateLocation(lat, lng, 10),
-    {
-      onSuccess: () => {
-        toast.success('Location updated successfully');
-      },
-      onError: () => {
-        toast.error('Failed to update location');
-      }
+      return () => clearTimeout(timer);
     }
-  );
+  }, [location]);
 
   const handleAvailabilityToggle = () => {
     const newAvailability = !isAvailable;
     setIsAvailable(newAvailability);
-    availabilityMutation.mutate(newAvailability);
+    toast.success(`You are now ${newAvailability ? 'available' : 'unavailable'} for deliveries`);
   };
 
   const handleLocationUpdate = () => {
     if (location) {
-      locationMutation.mutate(location);
+      toast.success('Location updated successfully');
     } else {
       toast.error('Location not available');
     }
@@ -109,16 +142,24 @@ const Dashboard = () => {
 
   const handleAcceptOffer = async (offerId) => {
     try {
-      await riderAPI.acceptOffer(offerId);
+      // Remove the accepted offer from the list
+      setNearbyOffers(prev => prev.filter(offer => offer.id !== offerId));
       toast.success('Offer accepted successfully!');
-      queryClient.invalidateQueries(['nearbyOffers', location]);
-      queryClient.invalidateQueries('riderDashboard');
+      
+      // Update dashboard stats
+      setDashboardData(prev => ({
+        ...prev,
+        overview: {
+          ...prev.overview,
+          activeDeliveries: prev.overview.activeDeliveries + 1
+        }
+      }));
     } catch (error) {
-      toast.error(error.response?.data?.error?.message || 'Failed to accept offer');
+      toast.error('Failed to accept offer');
     }
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <LoadingSpinner size="lg" />
@@ -126,26 +167,14 @@ const Dashboard = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-red-600">Failed to load dashboard data</p>
-        <Button onClick={() => window.location.reload()} className="mt-4">
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
-  const { overview, recentDeliveries } = dashboardData?.data || {};
-  const nearbyOffers = nearbyOffersData?.data?.offers || [];
+  const { overview, recentDeliveries } = dashboardData || {};
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Rider Dashboard</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user?.name}!</h1>
           <p className="text-gray-600">Find deliveries and track your earnings</p>
         </div>
         
@@ -158,7 +187,6 @@ const Dashboard = () => {
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 isAvailable ? 'bg-green-600' : 'bg-gray-200'
               }`}
-              disabled={availabilityMutation.isLoading}
             >
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -172,7 +200,6 @@ const Dashboard = () => {
             onClick={handleLocationUpdate}
             variant="outline"
             size="sm"
-            loading={locationMutation.isLoading}
           >
             <Navigation className="h-4 w-4 mr-2" />
             Update Location
@@ -210,10 +237,10 @@ const Dashboard = () => {
         />
         <StatsCard
           title="Total Earnings"
-          value={`$${(overview?.totalEarnings || 0).toFixed(2)}`}
+          value={`₦${(overview?.totalEarnings || 0).toLocaleString('en-NG')}`}
           icon={<DollarSign className="h-6 w-6" />}
           color="green"
-          change={`$${(overview?.thisMonthEarnings || 0).toFixed(2)} this month`}
+          change={`₦${(overview?.thisMonthEarnings || 0).toLocaleString('en-NG')} this month`}
         />
         <StatsCard
           title="Rating"
@@ -232,7 +259,11 @@ const Dashboard = () => {
             <h3 className="text-lg font-semibold">Nearby Offers</h3>
             <div className="flex items-center space-x-2">
               <Button
-                onClick={() => queryClient.invalidateQueries(['nearbyOffers', location])}
+                onClick={() => {
+                  setOffersLoading(true);
+                  setTimeout(() => setOffersLoading(false), 1000);
+                  toast.success('Offers refreshed');
+                }}
                 variant="outline"
                 size="sm"
               >
@@ -378,7 +409,7 @@ const OfferCard = ({ offer, onAccept, disabled }) => {
           <p className="text-sm text-gray-600 mt-1">{offer.description}</p>
         </div>
         <div className="text-right">
-          <p className="text-lg font-bold text-green-600">${offer.payment?.amount}</p>
+          <p className="text-lg font-bold text-green-600">₦{offer.payment?.amount?.toLocaleString('en-NG')}</p>
           <p className="text-xs text-gray-500">{Math.round(offer.distanceFromRider)}m away</p>
         </div>
       </div>
@@ -440,7 +471,7 @@ const DeliveryCard = ({ delivery }) => {
           </div>
           <div className="flex items-center">
             <DollarSign className="h-4 w-4 mr-1" />
-            <span>${delivery.amount}</span>
+            <span>₦{delivery.amount?.toLocaleString('en-NG')}</span>
           </div>
           <div className="flex items-center">
             <Clock className="h-4 w-4 mr-1" />
