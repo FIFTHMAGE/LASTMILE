@@ -30,8 +30,93 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# Environment variables and API keys
+.env
+.env.*
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.staging
+.env.staging.local
+
+# API Keys and secrets
+/config/keys.js
+/config/secrets.js
+/config/credentials.json
+/secrets/
+/keys/
+/.secrets
+/.credentials
+/api-keys.json
+/service-account.json
+/firebase-adminsdk-*.json
+
+# Database credentials
+/database.json
+/db-config.json
+/mongodb.conf
+/redis.conf
+
+# SSL certificates and private keys
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+/ssl/
+/certs/
+
+# Authentication tokens
+/tokens/
+/.tokens
+/auth-tokens.json
+/jwt-secret.txt
+
+# Stripe keys
+/stripe-keys.json
+/.stripe/
+
+# AWS credentials
+/.aws/
+/aws-config.json
+
+# Google Cloud credentials
+/gcloud-service-account.json
+/.gcloud/
+
+# MongoDB connection strings
+/mongodb-connection.txt
+
+# Redis connection strings
+/redis-connection.txt
+
+# Third-party service keys
+/sendgrid-api-key.txt
+/twilio-config.json
+/firebase-config.json
+/google-api-credentials.json
+
+# Backup files that might contain sensitive data
+*.backup
+*.bak
+*.old
+*.orig
+*.tmp
+
+# Local development files
+/.vscode/settings.json
+/local-config.json
+/dev-secrets.json
+
+# Temporary files
+/temp/
+/tmp/
+*.temp
 
 # vercel
 .vercel

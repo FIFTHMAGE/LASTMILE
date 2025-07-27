@@ -60,13 +60,105 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
+# Environment variables and API keys
 .env
-.env.test
+.env.*
 .env.local
+.env.development
 .env.development.local
+.env.test
 .env.test.local
+.env.production
 .env.production.local
+.env.staging
+.env.staging.local
+
+# API Keys and secrets
+**/config/keys.js
+**/config/secrets.js
+**/config/credentials.json
+**/secrets/
+**/keys/
+**/.secrets
+**/.credentials
+**/api-keys.json
+**/service-account.json
+**/firebase-adminsdk-*.json
+
+# Database credentials
+**/database.json
+**/db-config.json
+**/mongodb.conf
+**/redis.conf
+
+# SSL certificates and private keys
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+**/ssl/
+**/certs/
+
+# Authentication tokens
+**/tokens/
+**/.tokens
+**/auth-tokens.json
+**/jwt-secret.txt
+
+# Cloud provider credentials
+**/.aws/
+**/aws-config.json
+**/.gcloud/
+**/gcloud-service-account.json
+**/.azure/
+**/azure-credentials.json
+
+# Payment provider keys
+**/stripe-keys.json
+**/.stripe/
+**/paypal-config.json
+**/.paypal/
+
+# Third-party service keys
+**/sendgrid-api-key.txt
+**/twilio-config.json
+**/firebase-config.json
+**/google-api-credentials.json
+
+# Backup files that might contain sensitive data
+*.backup
+*.bak
+*.old
+*.orig
+*.tmp
+*~
+
+# Log files that might contain sensitive information
+*.log
+logs/
+**/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE and editor files that might contain sensitive info
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
