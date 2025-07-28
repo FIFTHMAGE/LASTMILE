@@ -5,8 +5,11 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PublicLayout } from '@/components/layout';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, Button, Input, LoadingSpinner } from '@/components/ui';
+import PublicLayout from '@/components/layout/PublicLayout';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CheckCircleIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 
 export default function ForgotPasswordPage() {

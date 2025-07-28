@@ -1,12 +1,4 @@
-/**
- * Layout components exports
- */
-export { DashboardLayout } from './DashboardLayout';
-export { PublicLayout } from './PublicLayout';
-export { Header } from './Header';
-export { Sidebar } from './Sidebar';
-
-export type { DashboardLayoutProps } from './DashboardLayout';
-export type { PublicLayoutProps } from './PublicLayout';
-export type { HeaderProps } from './Header';
-export type { SidebarProps } from './Sidebar';
+export { default as PublicLayout } from './PublicLayout';
+export { default as DashboardLayout } from './DashboardLayout';
+export { default as Header } from './Header';
+export { default as Sidebar } from './Sidebar';
