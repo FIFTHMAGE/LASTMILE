@@ -45,9 +45,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Access-Control-Allow-Origin',
-            value: process.env.NODE_ENV === 'production' 
-              ? process.env.NEXTAUTH_URL || 'https://your-app.vercel.app'
-              : '*',
+            value: '*',
           },
           {
             key: 'Access-Control-Allow-Methods',

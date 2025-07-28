@@ -3,7 +3,7 @@
  * GET /api/health - System health check
  */
 import { NextRequest } from 'next/server';
-import { connectDB } from '@/lib/services/database';
+import { connectToDatabase } from '@/lib/services/database';
 import { createHealthCheckResponse } from '@/lib/utils/api-response';
 
 /**
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   // Database connectivity check
   try {
-    await connectDB();
+    await connectToDatabase();
     checks.database = 'healthy';
   } catch (error) {
     console.error('Database health check failed:', error);

@@ -18,7 +18,7 @@ Before deploying, you need to set up the following environment variables in Verc
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/lastmile-delivery
 JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters
 NEXTAUTH_SECRET=your-nextauth-secret-key
-NEXTAUTH_URL=https://your-app-name.vercel.app
+NEXTAUTH_URL=https://lastmile.vercel.app
 ```
 
 #### Email Configuration

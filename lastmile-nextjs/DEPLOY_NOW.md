@@ -34,7 +34,7 @@ You'll need to set these in the Vercel dashboard after deployment:
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/lastmile-delivery
 JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters-long
 NEXTAUTH_SECRET=your-nextauth-secret-key-here
-NEXTAUTH_URL=https://your-app-name.vercel.app
+NEXTAUTH_URL=https://lastmile.vercel.app
 ```
 
 ### Email Configuration (Required for notifications)
@@ -181,7 +181,7 @@ Building...
 ✅ Build completed successfully!
 
 Deploying...
-✅ Deployed to https://your-app-name.vercel.app
+✅ Deployed to https://lastmile.vercel.app
 
 🔍 Running health checks...
 ✅ All health checks passed!
@@ -257,7 +257,7 @@ npm run build
 ## 🎉 Success! Your App is Live
 
 Once deployed successfully, your LastMile Delivery platform will be available at:
-**https://your-app-name.vercel.app**
+**https://lastmile.vercel.app**
 
 ### Next Steps:
 1. 🧪 Test all features thoroughly
