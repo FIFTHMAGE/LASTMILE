@@ -1,38 +1,5 @@
 {
-  "version": 2,
   "buildCommand": "cd lastmile-nextjs && npm install && npm run build",
   "outputDirectory": "lastmile-nextjs/.next",
-  "framework": "nextjs",
-  "installCommand": "cd lastmile-nextjs && npm install",
-  "functions": {
-    "lastmile-nextjs/src/app/api/**/*.ts": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 30
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api/:path*"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization"
-        }
-      ]
-    }
-  ]
+  "installCommand": "cd lastmile-nextjs && npm install"
 }

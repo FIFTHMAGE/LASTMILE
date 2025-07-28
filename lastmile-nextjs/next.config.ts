@@ -108,8 +108,8 @@ const nextConfig: NextConfig = {
   //   return config;
   // },
 
-  // Output configuration for static export (if needed)
-  output: 'standalone',
+  // Output configuration for Vercel deployment
+  // output: 'standalone', // Commented out for Vercel deployment
 
   // Compression
   compress: true,
