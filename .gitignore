@@ -63,6 +63,7 @@ typings/
 # Environment variables and API keys
 .env
 .env.*
+.env.txt
 .env.local
 .env.development
 .env.development.local
@@ -279,3 +280,6 @@ vercel-env-setup.bat
 **/env-setup-*.js
 **/env-setup-*.sh
 **/env-setup-*.bat
+update-mongodb-password.js
+test-new-mongodb-connection.js
+MONGODB_PASSWORD_UPDATE_GUIDE.md
