@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   // Enable experimental features
   experimental: {
     // Enable server actions
@@ -102,15 +101,6 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // Webpack configuration (disabled when using Turbopack)
-  // webpack: (config) => {
-  //   // Add custom webpack configurations here if needed
-  //   return config;
-  // },
-
-  // Output configuration for Vercel deployment
-  // output: 'standalone', // Commented out for Vercel deployment
-
   // Compression
   compress: true,
 
@@ -123,4 +113,4 @@ const nextConfig: NextConfig = {
   // SWC minification is enabled by default in Next.js 15
 };
 
-export default nextConfig;
+module.exports = nextConfig;
