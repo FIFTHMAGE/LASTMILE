@@ -266,3 +266,16 @@ dist/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Security: Files that may contain sensitive data
+COPY_PASTE_VALUES.txt
+READY_TO_PASTE.env
+setup-vercel-complete.js
+VERCEL_DASHBOARD_SETUP.md
+vercel-env-setup.sh
+vercel-env-setup.bat
+**/mongodb-connection.txt
+**/database-credentials.txt
+**/env-setup-*.js
+**/env-setup-*.sh
+**/env-setup-*.bat
