@@ -90,6 +90,13 @@ typings/
 **/db-config.json
 **/mongodb.conf
 **/redis.conf
+**/mongodb-connection.txt
+**/mongodb-uri.txt
+**/mongo-connection.js
+**/db-connection.js
+**/connection-string.txt
+**/.mongodb
+**/mongo.env
 
 # SSL certificates and private keys
 *.pem
