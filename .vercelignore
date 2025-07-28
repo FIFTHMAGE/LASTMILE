@@ -1,0 +1,15 @@
+# Ignore old backend files
+/server.js
+/server-simple.js
+/server-minimal.js
+/api/index.js
+/routes/
+/models/
+/services/
+/middleware/
+/tests/
+/scripts/
+/frontend/
+
+# Keep only Next.js app
+!/lastmile-nextjs/

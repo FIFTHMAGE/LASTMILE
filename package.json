@@ -35,9 +35,11 @@
     "start": "node server-minimal.js",
     "dev": "nodemon server.js",
     "dev:full": "node start-dev.js",
-    "build": "cd frontend && npm install && GENERATE_SOURCEMAP=false CI=false npm run build",
+    "dev:nextjs": "cd lastmile-nextjs && npm run dev",
+    "build": "cd lastmile-nextjs && npm install && npm run build",
     "build:frontend": "cd frontend && npm install && npm run build",
-    "install:all": "npm install && cd frontend && npm install",
+    "build:nextjs": "cd lastmile-nextjs && npm install && npm run build",
+    "install:all": "npm install && cd frontend && npm install && cd ../lastmile-nextjs && npm install",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -48,6 +50,9 @@
     "cache:cleanup": "node scripts/initializeCache.js cleanup",
     "cache:maintenance": "node scripts/initializeCache.js maintenance",
     "cache:monitor": "node scripts/initializeCache.js monitor",
-    "deploy:render": "git push origin main"
+    "deploy:render": "git push origin main",
+    "deploy:vercel": "node deploy-vercel.js",
+    "setup:vercel": "node setup-vercel-env.js",
+    "vercel:env": "node setup-vercel-env.js"
   }
 }

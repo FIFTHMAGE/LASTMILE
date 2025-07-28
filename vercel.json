@@ -1,16 +1,38 @@
 {
   "version": 2,
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/build",
-  "framework": "create-react-app",
+  "buildCommand": "cd lastmile-nextjs && npm install && npm run build",
+  "outputDirectory": "lastmile-nextjs/.next",
+  "framework": "nextjs",
+  "installCommand": "cd lastmile-nextjs && npm install",
+  "functions": {
+    "lastmile-nextjs/src/app/api/**/*.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.js" },
-    { "source": "/health", "destination": "/api/index.js" },
-    { "source": "/(.*)", "destination": "/" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
+    }
   ],
-  "env": {
-    "CI": "false",
-    "GENERATE_SOURCEMAP": "false",
-    "ESLINT_NO_DEV_ERRORS": "true"
-  }
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        }
+      ]
+    }
+  ]
 }
