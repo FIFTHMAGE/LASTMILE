@@ -4,6 +4,11 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "outputDirectory": ".next",
+  "build": {
+    "env": {
+      "NODE_VERSION": "22"
+    }
+  },
   "functions": {
     "src/app/api/**/*.ts": {
       "runtime": "nodejs22.x",
