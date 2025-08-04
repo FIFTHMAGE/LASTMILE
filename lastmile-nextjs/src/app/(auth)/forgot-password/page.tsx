@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PublicLayout from '@/components/layout/PublicLayout';
-import { Card } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';

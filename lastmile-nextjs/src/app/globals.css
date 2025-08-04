@@ -51,7 +51,7 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
   
   body {
@@ -83,7 +83,8 @@
 
   /* Selection styles */
   ::selection {
-    @apply bg-primary/20 text-primary-foreground;
+    background-color: hsl(var(--primary) / 0.2);
+    color: hsl(var(--primary-foreground));
   }
 
   /* Print styles */

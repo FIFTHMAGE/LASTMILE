@@ -6,7 +6,7 @@
   "outputDirectory": ".next",
   "functions": {
     "src/app/api/**/*.ts": {
-      "runtime": "nodejs20.x",
+      "runtime": "nodejs22.x",
       "maxDuration": 30
     }
   },

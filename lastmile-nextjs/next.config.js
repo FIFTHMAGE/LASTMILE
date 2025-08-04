@@ -110,6 +110,17 @@ const nextConfig = {
   // React strict mode
   reactStrictMode: true,
 
+  // Webpack configuration
+  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+    // Add path alias configuration
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': require('path').resolve(__dirname, 'src'),
+    };
+
+    return config;
+  },
+
   // SWC minification is enabled by default in Next.js 15
 };
 

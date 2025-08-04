@@ -86,3 +86,4 @@ export function PublicLayout({
     </div>
   );
 }
+export default PublicLayout;
