@@ -412,3 +412,256 @@ export function validateRiderRegistrationRequest(data: RiderRegistrationRequest)
 
   return createValidationResult(errors);
 }
+
+// Additional validation functions for API requests
+
+export function validateForgotPasswordRequest(data: { email: string }): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.email)) {
+    errors.push('Email is required');
+  } else if (!isValidEmail(data.email)) {
+    errors.push('Please enter a valid email address');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateResetPasswordRequest(data: { token: string; password: string; confirmPassword: string }): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.token)) {
+    errors.push('Reset token is required');
+  }
+
+  if (!isNonEmptyString(data.password)) {
+    errors.push('Password is required');
+  } else {
+    const passwordValidation = validatePassword(data.password);
+    if (!passwordValidation.isValid) {
+      errors.push(...passwordValidation.errors);
+    }
+  }
+
+  if (!isNonEmptyString(data.confirmPassword)) {
+    errors.push('Please confirm your password');
+  } else if (data.password !== data.confirmPassword) {
+    errors.push('Passwords do not match');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateEmailVerificationRequest(data: { token: string }): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.token)) {
+    errors.push('Verification token is required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateResendVerificationRequest(data: { email: string }): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.email)) {
+    errors.push('Email is required');
+  } else if (!isValidEmail(data.email)) {
+    errors.push('Please enter a valid email address');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateRefreshTokenRequest(data: { refreshToken: string }): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.refreshToken)) {
+    errors.push('Refresh token is required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateCreateOfferRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.title)) {
+    errors.push('Offer title is required');
+  }
+
+  if (!isNonEmptyString(data.description)) {
+    errors.push('Offer description is required');
+  }
+
+  if (!isPositiveNumber(data.price)) {
+    errors.push('Valid price is required');
+  }
+
+  if (!data.pickup || !isValidCoordinates(data.pickup.coordinates)) {
+    errors.push('Valid pickup location is required');
+  }
+
+  if (!data.delivery || !isValidCoordinates(data.delivery.coordinates)) {
+    errors.push('Valid delivery location is required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateUpdateOfferRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.title !== undefined && !isNonEmptyString(data.title)) {
+    errors.push('Offer title cannot be empty');
+  }
+
+  if (data.description !== undefined && !isNonEmptyString(data.description)) {
+    errors.push('Offer description cannot be empty');
+  }
+
+  if (data.price !== undefined && !isPositiveNumber(data.price)) {
+    errors.push('Valid price is required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateOfferFilters(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.status && !isValidOfferStatus(data.status)) {
+    errors.push('Invalid offer status');
+  }
+
+  if (data.minPrice !== undefined && !isNonNegativeNumber(data.minPrice)) {
+    errors.push('Minimum price must be a non-negative number');
+  }
+
+  if (data.maxPrice !== undefined && !isPositiveNumber(data.maxPrice)) {
+    errors.push('Maximum price must be a positive number');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateOfferCompletionRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.completionNotes && !isNonEmptyString(data.completionNotes)) {
+    errors.push('Completion notes cannot be empty if provided');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validatePickupConfirmationRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.pickupNotes && !isNonEmptyString(data.pickupNotes)) {
+    errors.push('Pickup notes cannot be empty if provided');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateDeliveryConfirmationRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.deliveryNotes && !isNonEmptyString(data.deliveryNotes)) {
+    errors.push('Delivery notes cannot be empty if provided');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateInTransitRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.transitNotes && !isNonEmptyString(data.transitNotes)) {
+    errors.push('Transit notes cannot be empty if provided');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateCreatePaymentRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(data.offerId)) {
+    errors.push('Offer ID is required');
+  }
+
+  if (!isPositiveNumber(data.amount)) {
+    errors.push('Valid payment amount is required');
+  }
+
+  if (!isValidPaymentMethod(data.method)) {
+    errors.push('Valid payment method is required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateUpdatePaymentRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.status && !isValidPaymentStatus(data.status)) {
+    errors.push('Invalid payment status');
+  }
+
+  if (data.amount !== undefined && !isPositiveNumber(data.amount)) {
+    errors.push('Valid payment amount is required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validatePaymentFilters(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.status && !isValidPaymentStatus(data.status)) {
+    errors.push('Invalid payment status');
+  }
+
+  if (data.method && !isValidPaymentMethod(data.method)) {
+    errors.push('Invalid payment method');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateUpdateProfileRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.email && !isValidEmail(data.email)) {
+    errors.push('Please enter a valid email address');
+  }
+
+  if (data.phone && !isValidPhone(data.phone)) {
+    errors.push('Please enter a valid phone number');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateLocationUpdateRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (!data.location || !isValidCoordinates(data.location.coordinates)) {
+    errors.push('Valid location coordinates are required');
+  }
+
+  return createValidationResult(errors);
+}
+
+export function validateAvailabilityUpdateRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (data.isAvailable !== undefined && typeof data.isAvailable !== 'boolean') {
+    errors.push('Availability status must be a boolean');
+  }
+
+  return createValidationResult(errors);
+}

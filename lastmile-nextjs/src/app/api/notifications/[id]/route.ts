@@ -15,8 +15,9 @@ import { Notification } from '@/lib/models/Notification';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     // Verify authentication
     const authHeader = request.headers.get('authorization');
@@ -29,8 +30,6 @@ export async function GET(
     if (!decoded) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
-
-    const { id } = params;
 
     await connectDB();
 
@@ -65,8 +64,9 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     // Verify authentication
     const authHeader = request.headers.get('authorization');
@@ -80,7 +80,6 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { id } = params;
     const body = await request.json();
 
     // For marking as read, use the utility function
@@ -145,8 +144,9 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     // Verify authentication
     const authHeader = request.headers.get('authorization');
@@ -159,8 +159,6 @@ export async function DELETE(
     if (!decoded) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
-
-    const { id } = params;
 
     // Use the utility function to delete notification
     const success = await deleteNotification(id, decoded.userId);

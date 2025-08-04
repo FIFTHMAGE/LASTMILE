@@ -235,7 +235,25 @@ export {
   isValidLength,
   validateLoginRequest,
   validateBusinessRegistrationRequest,
-  validateRiderRegistrationRequest
+  validateRiderRegistrationRequest,
+  validateForgotPasswordRequest,
+  validateResetPasswordRequest,
+  validateEmailVerificationRequest,
+  validateResendVerificationRequest,
+  validateRefreshTokenRequest,
+  validateCreateOfferRequest,
+  validateUpdateOfferRequest,
+  validateOfferFilters,
+  validateOfferCompletionRequest,
+  validatePickupConfirmationRequest,
+  validateDeliveryConfirmationRequest,
+  validateInTransitRequest,
+  validateCreatePaymentRequest,
+  validateUpdatePaymentRequest,
+  validatePaymentFilters,
+  validateUpdateProfileRequest,
+  validateLocationUpdateRequest,
+  validateAvailabilityUpdateRequest
 } from './validation';
 
 // Common utility types

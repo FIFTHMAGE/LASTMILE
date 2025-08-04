@@ -8,7 +8,7 @@ import { User } from '@/lib/models/User';
 import { VerificationToken } from '@/lib/models/VerificationToken';
 import { generateSecureToken, hashToken } from '@/lib/utils/jwt';
 import { ApiResponseHelpers, withErrorHandling } from '@/lib/utils/api-response';
-import { validateForgotPasswordRequest, ForgotPasswordRequest } from '@/lib/types';
+import { validateForgotPasswordRequest } from '@/lib/types';
 
 /**
  * Handle forgot password request
@@ -21,10 +21,10 @@ async function handleForgotPassword(request: NextRequest) {
     // Validate request data
     const validation = validateForgotPasswordRequest(body);
     if (!validation.isValid) {
-      return ApiResponseHelpers.validationError(validation.errors);
+      return ApiResponseHelpers.validation(validation.errors);
     }
 
-    const { email }: ForgotPasswordRequest = body;
+    const { email } = body;
 
     // Connect to database
     await connectDB();

@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { PublicLayout } from '@/components/layout';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, Button, LoadingSpinner } from '@/components/ui';
+import { Card, CardContent, Button, LoadingSpinner } from '@/components/ui';
 import { CheckCircleIcon, ExclamationTriangleIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
 
 export default function VerifyEmailPage() {

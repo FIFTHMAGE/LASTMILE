@@ -68,8 +68,8 @@ export async function processOfferPayment(
       return { success: false, error: 'Payment already processed for this offer' };
     }
 
-    // Get or create Stripe customer
-    let customerId = user.stripeCustomerId;
+    // Get or create Paystack customer
+    let customerId = user.paystackCustomerId;
     if (!customerId) {
       const customer = await paymentService.createCustomer({
         email: user.email,
@@ -81,14 +81,14 @@ export async function processOfferPayment(
       });
       customerId = customer.customerId;
       
-      // Update user with Stripe customer ID
-      await User.findByIdAndUpdate(user._id, { stripeCustomerId: customerId });
+      // Update user with Paystack customer ID
+      await User.findByIdAndUpdate(user._id, { paystackCustomerId: customerId });
     }
 
     // Create payment intent
     const paymentIntent = await paymentService.createPaymentIntent({
-      amount: paymentService.dollarsToCents(options.amount),
-      customerId,
+      amount: paymentService.nairaToKobo(options.amount),
+      customerId: user.email, // Paystack uses email as customer identifier
       metadata: {
         offerId: options.offerId,
         userId: options.userId,
@@ -103,10 +103,10 @@ export async function processOfferPayment(
       userId: options.userId,
       riderId: offer.rider,
       amount: options.amount,
-      currency: 'USD',
+      currency: 'NGN',
       status: 'pending',
       method: 'credit_card',
-      stripePaymentIntentId: paymentIntent.paymentIntentId,
+      paystackPaymentIntentId: paymentIntent.paymentIntentId,
       metadata: {
         offerDescription: offer.package.description,
         pickupAddress: offer.pickup.address,
@@ -177,15 +177,15 @@ async function handleSuccessfulPayment(
     // Calculate platform fee and rider earnings
     const platformFeePercentage = 5; // 5% platform fee
     const platformFee = paymentService.calculateApplicationFee(
-      paymentService.dollarsToCents(payment.amount),
+      paymentService.nairaToKobo(payment.amount),
       platformFeePercentage
     );
     
-    const riderEarnings = paymentService.dollarsToCents(payment.amount) - platformFee;
+    const riderEarnings = paymentService.nairaToKobo(payment.amount) - platformFee;
 
     // Update payment with fee breakdown
-    payment.platformFee = paymentService.centsToDollars(platformFee);
-    payment.riderEarnings = paymentService.centsToDollars(riderEarnings);
+    payment.platformFee = paymentService.koboToNaira(platformFee);
+    payment.riderEarnings = paymentService.koboToNaira(riderEarnings);
     await payment.save();
 
     // Send notification emails
@@ -234,14 +234,14 @@ export async function processRefund(
       return { success: false, error: 'Can only refund completed payments' };
     }
 
-    if (!payment.stripePaymentIntentId) {
-      return { success: false, error: 'No Stripe payment intent found' };
+    if (!payment.paystackPaymentIntentId) {
+      return { success: false, error: 'No Paystack payment intent found' };
     }
 
-    // Create refund in Stripe
+    // Create refund in Paystack
     const refund = await paymentService.createRefund({
-      paymentIntentId: payment.stripePaymentIntentId,
-      amount: amount ? paymentService.dollarsToCents(amount) : undefined,
+      paymentIntentId: payment.paystackPaymentIntentId,
+      amount: amount ? paymentService.nairaToKobo(amount) : undefined,
       reason,
       metadata: {
         paymentId: paymentId,
@@ -387,27 +387,31 @@ export async function getUserPaymentStats(userId: string): Promise<{
 }
 
 /**
- * Handle Stripe webhook events
+ * Handle Paystack webhook events
  */
-export async function handleStripeWebhook(event: any): Promise<void> {
+export async function handlePaystackWebhook(event: any): Promise<void> {
   try {
     await connectDB();
 
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        await handlePaymentIntentSucceeded(event.data.object);
+    switch (event.event) {
+      case 'charge.success':
+        await handleChargeSuccess(event.data);
         break;
       
-      case 'payment_intent.payment_failed':
-        await handlePaymentIntentFailed(event.data.object);
+      case 'charge.failed':
+        await handleChargeFailed(event.data);
         break;
       
-      case 'payment_intent.canceled':
-        await handlePaymentIntentCanceled(event.data.object);
+      case 'transfer.success':
+        await handleTransferSuccess(event.data);
+        break;
+      
+      case 'transfer.failed':
+        await handleTransferFailed(event.data);
         break;
       
       default:
-        console.log(`Unhandled webhook event type: ${event.type}`);
+        console.log(`Unhandled webhook event type: ${event.event}`);
     }
   } catch (error) {
     console.error('Webhook handling error:', error);
@@ -416,15 +420,15 @@ export async function handleStripeWebhook(event: any): Promise<void> {
 }
 
 /**
- * Handle successful payment intent
+ * Handle successful charge
  */
-async function handlePaymentIntentSucceeded(paymentIntent: any): Promise<void> {
+async function handleChargeSuccess(charge: any): Promise<void> {
   const payment = await Payment.findOne({ 
-    stripePaymentIntentId: paymentIntent.id 
+    paystackPaymentIntentId: charge.reference 
   }).populate('offerId userId');
 
   if (!payment) {
-    console.error('Payment not found for payment intent:', paymentIntent.id);
+    console.error('Payment not found for charge reference:', charge.reference);
     return;
   }
 
@@ -439,38 +443,37 @@ async function handlePaymentIntentSucceeded(paymentIntent: any): Promise<void> {
 }
 
 /**
- * Handle failed payment intent
+ * Handle failed charge
  */
-async function handlePaymentIntentFailed(paymentIntent: any): Promise<void> {
+async function handleChargeFailed(charge: any): Promise<void> {
   const payment = await Payment.findOne({ 
-    stripePaymentIntentId: paymentIntent.id 
+    paystackPaymentIntentId: charge.reference 
   });
 
   if (!payment) {
-    console.error('Payment not found for payment intent:', paymentIntent.id);
+    console.error('Payment not found for charge reference:', charge.reference);
     return;
   }
 
   payment.status = 'failed';
-  payment.failureReason = paymentIntent.last_payment_error?.message || 'Payment failed';
+  payment.failureReason = charge.gateway_response || 'Payment failed';
   await payment.save();
 }
 
 /**
- * Handle canceled payment intent
+ * Handle successful transfer
  */
-async function handlePaymentIntentCanceled(paymentIntent: any): Promise<void> {
-  const payment = await Payment.findOne({ 
-    stripePaymentIntentId: paymentIntent.id 
-  });
+async function handleTransferSuccess(transfer: any): Promise<void> {
+  console.log('Transfer successful:', transfer.reference);
+  // Handle rider payout success
+}
 
-  if (!payment) {
-    console.error('Payment not found for payment intent:', paymentIntent.id);
-    return;
-  }
-
-  payment.status = 'cancelled';
-  await payment.save();
+/**
+ * Handle failed transfer
+ */
+async function handleTransferFailed(transfer: any): Promise<void> {
+  console.log('Transfer failed:', transfer.reference);
+  // Handle rider payout failure
 }
 
 /**
@@ -481,12 +484,12 @@ export function validatePaymentAmount(amount: number): { isValid: boolean; error
     return { isValid: false, error: 'Amount must be greater than 0' };
   }
 
-  if (amount < 0.50) {
-    return { isValid: false, error: 'Minimum payment amount is $0.50' };
+  if (amount < 50) {
+    return { isValid: false, error: 'Minimum payment amount is ₦50' };
   }
 
-  if (amount > 10000) {
-    return { isValid: false, error: 'Maximum payment amount is $10,000' };
+  if (amount > 1000000) {
+    return { isValid: false, error: 'Maximum payment amount is ₦1,000,000' };
   }
 
   return { isValid: true };
@@ -495,8 +498,8 @@ export function validatePaymentAmount(amount: number): { isValid: boolean; error
 /**
  * Format currency amount for display
  */
-export function formatCurrency(amount: number, currency: string = 'USD'): string {
-  return paymentService.formatAmount(paymentService.dollarsToCents(amount), currency);
+export function formatCurrency(amount: number, currency: string = 'NGN'): string {
+  return paymentService.formatAmount(paymentService.nairaToKobo(amount), currency);
 }
 
 /**
@@ -506,7 +509,7 @@ export function calculateDeliveryPrice(
   distance: number,
   urgency: 'standard' | 'express' | 'urgent' = 'standard'
 ): number {
-  return paymentService.centsToDollars(
+  return paymentService.koboToNaira(
     paymentService.calculateDeliveryPrice(distance, urgency)
   );
 }

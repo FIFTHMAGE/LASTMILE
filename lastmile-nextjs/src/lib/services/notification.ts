@@ -79,3 +79,6 @@ export class NotificationService {
     }
   }
 }
+
+// Export singleton instance for backward compatibility
+export const notificationService = NotificationService;

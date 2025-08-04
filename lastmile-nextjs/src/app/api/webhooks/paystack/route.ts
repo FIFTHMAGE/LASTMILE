@@ -1,19 +1,19 @@
 /**
- * Stripe webhook handler
- * POST /api/webhooks/stripe
+ * Paystack webhook handler
+ * POST /api/webhooks/paystack
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { paymentService } from '@/lib/services/payment';
-import { handleStripeWebhook } from '@/lib/utils/payment';
+import { handlePaystackWebhook } from '@/lib/utils/payment';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
-    const signature = request.headers.get('stripe-signature');
+    const signature = request.headers.get('x-paystack-signature');
 
     if (!signature) {
       return NextResponse.json(
-        { error: 'Missing stripe-signature header' },
+        { error: 'Missing x-paystack-signature header' },
         { status: 400 }
       );
     }
@@ -22,12 +22,12 @@ export async function POST(request: NextRequest) {
     const event = await paymentService.handleWebhook(body, signature);
 
     // Handle the webhook event
-    await handleStripeWebhook(event);
+    await handlePaystackWebhook(event);
 
     return NextResponse.json({ received: true });
 
   } catch (error) {
-    console.error('Stripe webhook error:', error);
+    console.error('Paystack webhook error:', error);
     
     if (error instanceof Error && error.message.includes('signature')) {
       return NextResponse.json(
@@ -52,7 +52,7 @@ export async function OPTIONS() {
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, stripe-signature',
+      'Access-Control-Allow-Headers': 'Content-Type, x-paystack-signature',
     },
   });
 }

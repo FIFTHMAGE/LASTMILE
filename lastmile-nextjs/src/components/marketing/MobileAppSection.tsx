@@ -9,7 +9,8 @@ import {
   DevicePhoneMobileIcon,
   StarIcon,
   ArrowDownTrayIcon,
-  QrCodeIcon
+  QrCodeIcon,
+  TruckIcon
 } from '@heroicons/react/24/outline';
 
 export interface MobileAppSectionProps {

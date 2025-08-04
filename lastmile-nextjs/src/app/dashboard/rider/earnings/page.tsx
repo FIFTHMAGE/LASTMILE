@@ -15,7 +15,7 @@ import {
   CalendarIcon,
   ArrowDownTrayIcon,
   StarIcon,
-  TrendingUpIcon
+  ArrowTrendingUpIcon
 } from '@heroicons/react/24/outline';
 
 interface EarningsStats {
@@ -277,7 +277,7 @@ function RiderEarningsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
-                <TrendingUpIcon className="h-5 w-5 text-green-600 mr-2" />
+                <ArrowTrendingUpIcon className="h-5 w-5 text-green-600 mr-2" />
                 This Week
               </CardTitle>
             </CardHeader>

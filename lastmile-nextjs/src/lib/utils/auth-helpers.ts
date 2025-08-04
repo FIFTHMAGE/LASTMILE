@@ -1,6 +1,11 @@
 /**
- * Authentication helper utilities for client-side operations
+ * Authentication helper utilities for client-side and server-side operations
  */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyJWT, extractTokenFromHeader } from './jwt';
+import { connectDB } from '@/lib/services/database';
+import { User } from '@/lib/models/User';
 
 const TOKEN_KEY = 'lastmile_auth_token';
 const COOKIE_NAME = 'lastmile_auth';
@@ -135,4 +140,129 @@ export class ClientAuthUtils {
     this.removeAuthToken();
     this.removeAuthCookie();
   }
+}
+
+// Server-side authentication utilities
+
+/**
+ * Get user from request token
+ */
+export async function getUserFromRequest(request: NextRequest): Promise<any> {
+  try {
+    const token = extractTokenFromHeader(request);
+    if (!token) {
+      return null;
+    }
+
+    const payload = verifyJWT(token);
+    await connectDB();
+    
+    const user = await User.findById(payload.userId).select('-password');
+    return user;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Higher-order function to protect API routes with authentication
+ */
+export function withAuth<T extends any[]>(
+  handler: (request: NextRequest, ...args: T) => Promise<NextResponse>
+) {
+  return async (request: NextRequest, ...args: T): Promise<NextResponse> => {
+    try {
+      const user = await getUserFromRequest(request);
+      
+      if (!user) {
+        return NextResponse.json(
+          { success: false, error: 'Authentication required' },
+          { status: 401 }
+        );
+      }
+
+      // Add user to request context (if needed)
+      (request as any).user = user;
+      
+      return await handler(request, ...args);
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication failed' },
+        { status: 401 }
+      );
+    }
+  };
+}
+
+/**
+ * Higher-order function to protect API routes with role-based access
+ */
+export function withRole(
+  roles: string | string[],
+  handler: (request: NextRequest, ...args: any[]) => Promise<NextResponse>
+) {
+  const allowedRoles = Array.isArray(roles) ? roles : [roles];
+  
+  return withAuth(async (request: NextRequest, ...args: any[]): Promise<NextResponse> => {
+    const user = (request as any).user;
+    
+    if (!allowedRoles.includes(user.role)) {
+      return NextResponse.json(
+        { success: false, error: 'Insufficient permissions' },
+        { status: 403 }
+      );
+    }
+
+    return await handler(request, ...args);
+  });
+}
+
+/**
+ * Higher-order function to require email verification
+ */
+export function requireVerification(
+  handler: (request: NextRequest, ...args: any[]) => Promise<NextResponse>
+) {
+  return withAuth(async (request: NextRequest, ...args: any[]): Promise<NextResponse> => {
+    const user = (request as any).user;
+    
+    if (!user.isEmailVerified) {
+      return NextResponse.json(
+        { success: false, error: 'Email verification required' },
+        { status: 403 }
+      );
+    }
+
+    return await handler(request, ...args);
+  });
+}
+
+/**
+ * Higher-order function to require resource ownership
+ */
+export function requireOwnership(
+  getResourceUserId: (request: NextRequest, ...args: any[]) => Promise<string>,
+  handler: (request: NextRequest, ...args: any[]) => Promise<NextResponse>
+) {
+  return withAuth(async (request: NextRequest, ...args: any[]): Promise<NextResponse> => {
+    const user = (request as any).user;
+    
+    try {
+      const resourceUserId = await getResourceUserId(request, ...args);
+      
+      if (user._id.toString() !== resourceUserId && user.role !== 'admin') {
+        return NextResponse.json(
+          { success: false, error: 'Access denied' },
+          { status: 403 }
+        );
+      }
+
+      return await handler(request, ...args);
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: 'Resource access validation failed' },
+        { status: 500 }
+      );
+    }
+  });
 }

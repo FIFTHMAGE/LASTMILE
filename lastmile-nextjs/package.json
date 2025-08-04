@@ -40,6 +40,7 @@
     "mongoose": "^8.16.4",
     "next": "15.4.4",
     "nodemailer": "^7.0.5",
+    "paystack": "^2.0.1",
     "postcss": "^8.5.6",
     "react": "19.1.0",
     "react-dom": "19.1.0",

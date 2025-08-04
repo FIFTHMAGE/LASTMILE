@@ -171,3 +171,69 @@ export function withCORS(response: NextResponse): NextResponse {
   
   return response;
 }
+
+/**
+ * Pagination response interface
+ */
+export interface PaginationResponse<T = any> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
+/**
+ * Create a paginated response
+ */
+export function createPaginationResponse<T>(
+  data: T[],
+  page: number,
+  limit: number,
+  total: number,
+  message?: string
+): NextResponse {
+  const totalPages = Math.ceil(total / limit);
+  const hasNext = page < totalPages;
+  const hasPrev = page > 1;
+
+  const response: ApiResponse<PaginationResponse<T>> = {
+    success: true,
+    data: {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext,
+        hasPrev
+      }
+    },
+    message,
+    timestamp: new Date().toISOString()
+  };
+
+  return NextResponse.json(response);
+}
+
+/**
+ * API Response Helpers - Collection of all response utilities
+ */
+export const ApiResponseHelpers = {
+  success: createSuccessResponse,
+  error: createErrorResponse,
+  healthCheck: createHealthCheckResponse,
+  validation: createValidationErrorResponse,
+  unauthorized: createUnauthorizedResponse,
+  forbidden: createForbiddenResponse,
+  notFound: createNotFoundResponse,
+  serverError: createServerErrorResponse,
+  pagination: createPaginationResponse,
+  withCORS,
+  withErrorHandling
+};

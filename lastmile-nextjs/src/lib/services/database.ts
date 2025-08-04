@@ -259,5 +259,8 @@ export async function withDatabase<T>(
   return await operation();
 }
 
+// Legacy alias for backward compatibility
+export const connectDB = connectToDatabase;
+
 // Export types for use in other modules
 export type { DatabaseConnection };

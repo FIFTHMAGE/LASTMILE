@@ -8,7 +8,7 @@ import { User } from '@/lib/models/User';
 import { Offer } from '@/lib/models/Offer';
 import { Payment } from '@/lib/models/Payment';
 import { Notification } from '@/lib/models/Notification';
-import { ApiResponseHelpers, withErrorHandling } from '@/lib/utils/api-response';
+import { ApiResponseHelpers } from '@/lib/utils/api-response';
 import { withRole } from '@/lib/utils/auth-helpers';
 
 /**
@@ -23,7 +23,7 @@ async function handleGetAnalytics(request: NextRequest, user: any) {
     const periodDays = parseInt(period);
 
     if (periodDays < 1 || periodDays > 365) {
-      return ApiResponseHelpers.badRequest('Period must be between 1 and 365 days');
+      return ApiResponseHelpers.error('Period must be between 1 and 365 days', 400);
     }
 
     const startDate = new Date();
@@ -213,7 +213,7 @@ async function handleGetAnalytics(request: NextRequest, user: any) {
 
   } catch (error) {
     console.error('Get analytics error:', error);
-    return ApiResponseHelpers.internalError('Failed to retrieve analytics');
+    return ApiResponseHelpers.serverError('Failed to retrieve analytics');
   }
 }
 
